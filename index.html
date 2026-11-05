@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reversi Trainer</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <main class="app">
+    <section class="board-area">
+      <div class="frame">
+        <div class="coords cols" aria-hidden="true">
+          <span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span>
+        </div>
+        <div class="coords rows" aria-hidden="true">
+          <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span>
+        </div>
+        <div id="board" class="board" role="grid" aria-label="Reversi board"></div>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <h1>Reversi Trainer</h1>
+
+      <div class="score">
+        <div class="side" id="side-black">
+          <span class="chip black"></span><span class="count" id="count-black">2</span>
+        </div>
+        <div class="status" id="status">Black to move</div>
+        <div class="side" id="side-white">
+          <span class="count" id="count-white">2</span><span class="chip white"></span>
+        </div>
+      </div>
+
+      <div class="nav">
+        <button id="btn-first" title="First (Home)">&#x23EE;</button>
+        <button id="btn-back" title="Back (&larr;)">&#x25C0;</button>
+        <button id="btn-fwd" title="Forward (&rarr;)">&#x25B6;</button>
+        <button id="btn-last" title="Last (End)">&#x23ED;</button>
+      </div>
+
+      <div class="options">
+        <button id="btn-new" class="wide">New game</button>
+        <label class="toggle"><input type="checkbox" id="opt-hints" checked> Show legal moves</label>
+      </div>
+
+      <div class="section-title">Moves</div>
+      <div class="moves" id="moves"></div>
+
+      <div class="section-title">Transcript</div>
+      <textarea id="transcript" spellcheck="false" placeholder="Paste a game, e.g. f5d6c3d3c4f4"></textarea>
+      <div class="row">
+        <button id="btn-load">Load</button>
+        <button id="btn-copy">Copy</button>
+        <span class="msg" id="msg"></span>
+      </div>
+    </aside>
+  </main>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
