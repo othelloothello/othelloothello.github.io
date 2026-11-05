@@ -35,7 +35,13 @@ jobs:
       - name: Compile with Emscripten
         run: |
           mkdir -p engine/build
-          docker run --rm -v "$PWD:/src" -w /src -u "$(id -u):$(id -g)" "$EMSDK_IMAGE" \
+          set -o pipefail
+          report() {
+            # Surface compiler errors as annotations (readable without signing in).
+            grep -E "error|undefined symbol" build.log | head -10 | while IFS= read -r l; do echo "::error::$l"; done
+            exit 1
+          }
+          docker run --rm -v "$PWD:/src" -w /src -u "$(id -u):$(id -g)" -e HOME=/tmp -e EM_CACHE=/tmp/emcache "$EMSDK_IMAGE" \
             emcc -O3 -flto -std=c17 -D_GNU_SOURCE=1 -DNDEBUG -Dmain=edax_main \
               -Wno-unused-parameter -Wno-unused-function \
               -I edax/src engine/src/edax_wasm.c -lm \
@@ -44,7 +50,7 @@ jobs:
               -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=64MB -sSTACK_SIZE=8MB \
               -sEXPORTED_FUNCTIONS=_edax_init,_edax_analyze \
               -sEXPORTED_RUNTIME_METHODS=ccall,cwrap \
-              --preload-file edax/bin/data/eval.dat@data/eval.dat
+              --preload-file edax/bin/data/eval.dat@data/eval.dat 2>&1 | tee build.log || report
           cp edax/LICENSE engine/build/LICENSE-edax.txt
           echo "Edax source: https://github.com/$EDAX_REPO/tree/$EDAX_COMMIT" > engine/build/SOURCE.txt
           ls -la engine/build
