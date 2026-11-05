@@ -41,16 +41,22 @@ jobs:
             grep -E "error|undefined symbol" build.log | head -10 | while IFS= read -r l; do echo "::error::$l"; done
             exit 1
           }
-          docker run --rm -v "$PWD:/src" -w /src -u "$(id -u):$(id -g)" -e HOME=/tmp -e EM_CACHE=/tmp/emcache "$EMSDK_IMAGE" \
-            emcc -O3 -flto -std=c17 -D_GNU_SOURCE=1 -DNDEBUG -Dmain=edax_main -include time.h \
-              -Wno-unused-parameter -Wno-unused-function \
-              -I edax/src engine/src/edax_wasm.c -lm \
-              -o engine/build/edax.js \
-              -sMODULARIZE=1 -sEXPORT_NAME=createEdax -sENVIRONMENT=worker \
-              -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=64MB -sSTACK_SIZE=8MB \
-              -sEXPORTED_FUNCTIONS=_edax_init,_edax_analyze \
-              -sEXPORTED_RUNTIME_METHODS=ccall,cwrap \
-              --preload-file edax/bin/data/eval.dat@data/eval.dat 2>&1 | tee build.log || report
+          COMMON="-std=c17 -D_GNU_SOURCE=1 -Dmain=edax_main -include time.h \
+            -Wno-unused-parameter -Wno-unused-function \
+            -I edax/src engine/src/edax_wasm.c -lm \
+            -sMODULARIZE=1 -sEXPORT_NAME=createEdax -sENVIRONMENT=worker \
+            -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=64MB -sSTACK_SIZE=8MB \
+            -sFORCE_FILESYSTEM=1 \
+            -sEXPORTED_FUNCTIONS=_edax_init,_edax_analyze,_edax_set_verbosity \
+            -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,FS"
+          EMCC="docker run --rm -v $PWD:/src -w /src -u $(id -u):$(id -g) -e HOME=/tmp -e EM_CACHE=/tmp/emcache $EMSDK_IMAGE emcc"
+          # Release build
+          $EMCC -O3 -flto -DNDEBUG $COMMON -o engine/build/edax.js 2>&1 | tee build.log || report
+          # Debug build: traps invalid memory access, keeps asserts and names
+          $EMCC -O1 -g2 -sASSERTIONS=2 -sSAFE_HEAP=1 $COMMON -o engine/build/edax-debug.js 2>&1 | tee build.log || report
+          # Eval weights, shared by both builds (loaded by the worker)
+          cp edax/bin/data/eval.dat engine/build/eval.dat
+          rm -f engine/build/edax.data
           cp edax/LICENSE engine/build/LICENSE-edax.txt
           echo "Edax source: https://github.com/$EDAX_REPO/tree/$EDAX_COMMIT" > engine/build/SOURCE.txt
           ls -la engine/build

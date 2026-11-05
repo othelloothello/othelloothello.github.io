@@ -17,6 +17,14 @@ static char g_out[32768];
 
 static void quiet_observer(Result *r) { (void) r; }
 
+/* 0 = silent; 1..3 = Edax's own progress output (to the console / worker log). */
+EMSCRIPTEN_KEEPALIVE void edax_set_verbosity(int v)
+{
+	options.verbosity = v;
+	g_search.options.verbosity = v;
+	g_search.observer = v ? search_observer : quiet_observer;
+}
+
 static int square_to_text(int x, char *buf)
 {
 	if (x == PASS) { buf[0] = 'p'; buf[1] = 's'; return 2; }
