@@ -41,7 +41,8 @@ jobs:
             grep -E "error|undefined symbol" build.log | head -10 | while IFS= read -r l; do echo "::error::$l"; done
             exit 1
           }
-          COMMON="-std=c17 -D_GNU_SOURCE=1 -Dmain=edax_main -include time.h \
+          # wasm32 has 32-bit long: Edax's bit_leading_zeros_64 uses __builtin_clzl on a uint64_t.
+          COMMON="-std=c17 -D_GNU_SOURCE=1 -Dmain=edax_main -include time.h -D__builtin_clzl=__builtin_clzll \
             -Wno-unused-parameter -Wno-unused-function \
             -I edax/src engine/src/edax_wasm.c -lm \
             -sMODULARIZE=1 -sEXPORT_NAME=createEdax -sENVIRONMENT=worker \
