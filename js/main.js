@@ -435,6 +435,9 @@ function startLine() {
   else trainerTurn();
 }
 
+// A book leaf (in the book, no book moves) is still quizzed on its stored best move; the line ends after it.
+const OUT_OF_BOOK = 'Out of book.';
+
 function endLine(reason) {
   T.phase = 'end';
   const l = T.line;
@@ -448,7 +451,7 @@ function userTurn(intro = '') {
   if (st.over) { endLine('Game over.'); return; }
   if (st.toMove !== T.lineColor) { trainerTurn(); return; }
   const info = probe(st);
-  if (!info || info.nLink === 0) { endLine('End of book line.'); return; }
+  if (!info || !info.moves.some((m) => m.sq < 64)) { endLine(OUT_OF_BOOK); return; }
   const legal = legalMoves(st.board, st.toMove);
   if (legal.length === 1) { // forced move: nothing to train
     T.phase = 'trainer';
@@ -465,9 +468,9 @@ function trainerTurn() {
   if (st.over) { endLine('Game over.'); return; }
   if (st.toMove === T.lineColor) { userTurn(); return; }
   const info = probe(st);
-  if (!info) { endLine('End of book line.'); return; }
+  if (!info) { endLine(OUT_OF_BOOK); return; }
   const cands = opponentCandidates(info, T.margin);
-  if (!cands.length) { endLine('End of book line.'); return; }
+  if (!cands.length) { endLine(OUT_OF_BOOK); return; }
   T.phase = 'trainer';
   T.timer = setTimeout(() => {
     pushMove(pickRandom(cands).sq);
