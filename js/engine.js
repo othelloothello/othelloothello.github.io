@@ -57,6 +57,20 @@ export class Engine {
     if (this.pending) { this.pending.resolve({ stale: true }); this.pending = null; }
   }
 
+  // Id of the request made by the latest analyze() call.
+  lastId() { return this.seq; }
+
+  // Stop request `id` now (time cap): drop it if queued, or restart the worker if it is running.
+  abort(id) {
+    if (this.pending && this.pending.id === id) { this.pending.resolve({ stale: true }); this.pending = null; return; }
+    if (this.current && this.current.id === id) {
+      clearTimeout(this.killTimer);
+      this.current.resolve({ stale: true });
+      this.worker.terminate();
+      this.spawn();
+    }
+  }
+
   pump() {
     if (!this.ready || this.current || !this.pending) return;
     const job = this.pending;

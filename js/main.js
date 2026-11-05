@@ -148,6 +148,39 @@ const cache = new Map(); // "board|level" -> { moves, ms }
 
 const QUICK_LEVEL = 8;
 
+// ---------- Time-capped analysis (Train) ----------
+// Edax runs at rising levels up to `target`; when `capMs` runs out, the deepest finished level
+// is used. The first level always finishes. onStep(step) is called after each level.
+// Returns { res, level, capped } | { stale: true } | { error }.
+const CAP_STEPS = [8, 12, 16, 20, 24, 28];
+const capCache = new Map(); // "board|level|n" -> result
+async function cappedAnalyze(board, target, n, capMs, onStep) {
+  const levels = [...CAP_STEPS.filter((l) => l < target), target];
+  let best = null, timer = 0, capHit = false;
+  const cap = capMs ? new Promise((r) => { timer = setTimeout(() => { capHit = true; r('cap'); }, capMs); }) : null;
+  try {
+    for (const lv of levels) {
+      const key = `${board}|${lv}|${n}`;
+      let res = capCache.get(key);
+      if (!res) {
+        const p = engine.analyze(board, lv, n);
+        const id = engine.lastId();
+        res = best && cap ? await Promise.race([p, cap]) : await p;
+        if (res === 'cap') { engine.abort(id); break; }
+        if (res.stale) return { stale: true };
+        if (res.error) return { error: res.error };
+        capCache.set(key, res);
+      }
+      best = { res, level: lv };
+      if (onStep) onStep({ ...best, capped: lv < target });
+      if (capHit) break;
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+  return { ...best, capped: best.level < target };
+}
+
 function setEngineStatus(text, isErr = false) {
   const el = $('engine-status');
   el.textContent = text;
@@ -408,6 +441,15 @@ async function requestAnalysis() {
   const st = cur();
   if (st.over) { engine.cancel(); setEngineStatus('Game over'); return; }
   const board = toEdaxBoard(st.board, st.toMove);
+  if (mode === 'train') { // playing on: rising levels within the time cap
+    const r = await cappedAnalyze(board, level, 60, T.cap * 1000, (step) => {
+      if (token === anaToken) showAnalysis(step.res, step.level < level);
+    });
+    if (token !== anaToken || r.stale) return;
+    if (r.error) { setEngineStatus('Engine error: ' + r.error, true); return; }
+    showAnalysis(r.res, false);
+    return;
+  }
   const key = board + '|' + level;
   if (cache.has(key)) { const c = cache.get(key); showAnalysis(c, false, c.ms); return; }
   if (engineState !== 'ready') { setEngineStatus('Loading Edax…'); }
@@ -440,6 +482,7 @@ const T = {
   phase: 'idle',          // idle | user | checking | trainer | wrong | end
   colorPref: store.get('trainColor', 1), // 1 black, 2 white, 3 both
   margin: store.get('trainMargin', 2),
+  cap: store.get('trainCap', 3),          // seconds for Edax checks and play-on scores; 0 = none
   lineColor: BLACK,
   retrying: false,
   review: null,           // review item being replayed, if any
@@ -638,10 +681,16 @@ async function moveScore(st, info, sq) {
     const diff = st.toMove === BLACK ? black - white : white - black;
     return { score: diff, source: 'final score' };
   }
-  const res = await engine.analyze(toEdaxBoard(child.board, child.toMove), level, 1);
-  if (res.stale || res.error || !res.moves || !res.moves.length) return null;
+  const r = await cappedAnalyze(toEdaxBoard(child.board, child.toMove), level, 1, T.cap * 1000, (step) => {
+    if (T.phase === 'checking' && step.level < level) setFeedback(`Checking… (Edax level ${step.level} done)`);
+  });
+  const res = r.res;
+  if (r.stale || r.error || !res || !res.moves || !res.moves.length) return null;
   const s = res.moves[0].score;
-  return { score: child.toMove === st.toMove ? s : -s, source: `Edax level ${level}` };
+  return {
+    score: child.toMove === st.toMove ? s : -s,
+    source: `Edax level ${r.level}` + (r.capped ? ` (time cap ${T.cap} s; level ${level} not reached)` : ''),
+  };
 }
 
 async function trainClick(sq) {
@@ -700,6 +749,8 @@ $('opt-train-color').value = String(T.colorPref);
 $('opt-train-margin').value = String(T.margin);
 $('opt-train-color').onchange = (e) => { T.colorPref = Number(e.target.value); store.set('trainColor', T.colorPref); renderTrainStats(); };
 $('opt-train-margin').onchange = (e) => { T.margin = Number(e.target.value); store.set('trainMargin', T.margin); };
+$('opt-train-cap').value = String(T.cap);
+$('opt-train-cap').onchange = (e) => { T.cap = Number(e.target.value); store.set('trainCap', T.cap); };
 $('btn-train-start').onclick = startLine;
 $('btn-train-next').onclick = startLine;
 $('btn-train-copy').onclick = async () => {
