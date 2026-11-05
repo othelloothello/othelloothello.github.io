@@ -279,6 +279,61 @@ textarea:focus { outline: none; border-color: var(--accent); }
 .msg { font-size: 12px; color: var(--muted); }
 .msg.err { color: #ff7b72; }
 
+/* ---------- Edax scores on the board ---------- */
+.cell .score {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700;
+  font-size: calc(var(--board) * 0.034);
+  font-variant-numeric: tabular-nums;
+  color: rgba(255,255,255,.88);
+  text-shadow: 0 1px 2px rgba(0,0,0,.6);
+  pointer-events: none;
+  z-index: 6;
+}
+.cell .score.best { color: #c9ffd9; text-shadow: 0 0 6px rgba(120,255,170,.55), 0 1px 2px rgba(0,0,0,.7); }
+.cell .score.bad { color: #ffc2b8; }
+.cell .score.partial { opacity: .55; }
+.cell.scored::before { display: none; }
+.cell.scored:hover { background: #17a466; }
+.cell.peek { background: #19ad6c; }
+
+/* ---------- Edax panel ---------- */
+.engine {
+  background: rgba(255,255,255,.035);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 18px;
+}
+.engine-head { display: flex; align-items: center; justify-content: space-between; }
+.engine-head .toggle { color: var(--text); font-weight: 600; }
+.level { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+select {
+  font: inherit; font-size: 13px;
+  color: var(--text); background: #16181b;
+  border: 1px solid #3a3f45; border-radius: 6px; padding: 3px 6px;
+}
+.engine-status { font-size: 12px; color: var(--muted); margin: 6px 0 4px; min-height: 16px; }
+.engine-status.err { color: #ff7b72; }
+.engine-lines { display: flex; flex-direction: column; gap: 2px; max-height: 180px; overflow-y: auto; }
+.eline {
+  display: grid;
+  grid-template-columns: 28px 38px 1fr;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.eline:hover { background: rgba(255,255,255,.08); }
+.eline .m { font-weight: 700; }
+.eline .s { text-align: right; font-weight: 700; }
+.eline.best .s { color: #7dffad; }
+.eline .pv { color: var(--muted); font-family: Consolas, "Cascadia Mono", monospace; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 @media (max-width: 900px) {
   :root { --board: min(calc(100vw - 32px - 2 * 0.055 * (100vw - 32px)), 640px); }
   .app { flex-direction: column; align-items: center; padding: 16px; }

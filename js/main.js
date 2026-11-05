@@ -2,6 +2,13 @@ import {
   BLACK, WHITE, EMPTY, sqName, legalMoves, countDiscs,
   initialState, playMove, parseTranscript,
 } from './reversi.js';
+import { Engine, toEdaxBoard } from './engine.js';
+
+// ---------- Settings (per browser) ----------
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('ot.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('ot.' + k, JSON.stringify(v)); } catch { /* ignore */ } },
+};
 
 // ---------- Game state ----------
 let states = [initialState()];
@@ -125,7 +132,115 @@ function render(animate = false) {
   renderMoves();
   const ta = $('transcript');
   if (document.activeElement !== ta) ta.value = transcript();
+  requestAnalysis();
 }
+
+// ---------- Edax analysis ----------
+let engine = null;
+let engineState = 'off';
+let analysisOn = store.get('edax', false);
+let level = store.get('level', 18);
+let anaToken = 0;
+const cache = new Map(); // "board|level" -> { moves, ms }
+
+const QUICK_LEVEL = 8;
+
+function setEngineStatus(text, isErr = false) {
+  const el = $('engine-status');
+  el.textContent = text;
+  el.classList.toggle('err', isErr);
+}
+
+function ensureEngine() {
+  if (engine) return;
+  engine = new Engine((state, err) => {
+    engineState = state;
+    if (state === 'loading') setEngineStatus('Loading Edax…');
+    else if (state === 'error') setEngineStatus('Engine error: ' + err, true);
+    else if (state === 'ready') requestAnalysis();
+  });
+}
+
+function clearScores() {
+  for (const c of cells) {
+    c.classList.remove('scored', 'peek');
+    const s = c.querySelector('.score');
+    if (s) s.remove();
+  }
+  $('engine-lines').innerHTML = '';
+}
+
+const fmtScore = (v) => (v > 0 ? '+' + v : String(v));
+const fmtPv = (pv) => (pv.match(/.{2}/g) || []).map((m) => (m === 'ps' ? 'pass' : m)).slice(0, 12).join(' ');
+
+function showAnalysis(res, partial, ms) {
+  clearScores();
+  const moves = (res.moves || []).slice().sort((a, b) => b.score - a.score);
+  if (!moves.length) return;
+  const best = moves[0].score;
+
+  for (const m of moves) {
+    const sq = (Number(m.move[1]) - 1) * 8 + (m.move.charCodeAt(0) - 97);
+    const el = document.createElement('div');
+    el.className = 'score' + (m.score === best ? ' best' : best - m.score >= 6 ? ' bad' : '') + (partial ? ' partial' : '');
+    el.textContent = fmtScore(m.score);
+    cells[sq].appendChild(el);
+    cells[sq].classList.add('scored');
+  }
+
+  const lines = $('engine-lines');
+  for (const m of moves) {
+    const sq = (Number(m.move[1]) - 1) * 8 + (m.move.charCodeAt(0) - 97);
+    const row = document.createElement('div');
+    row.className = 'eline' + (m.score === best ? ' best' : '');
+    row.innerHTML = `<span class="m">${m.move}</span><span class="s">${fmtScore(m.score)}</span><span class="pv">${fmtPv(m.pv)}</span>`;
+    row.title = fmtPv(m.pv);
+    row.onmouseenter = () => cells[sq].classList.add('peek');
+    row.onmouseleave = () => cells[sq].classList.remove('peek');
+    row.onclick = () => onCell(sq);
+    lines.appendChild(row);
+  }
+
+  const d = moves[0];
+  const depthText = d.selectivity < 100 ? `depth ${d.depth}@${d.selectivity}%` : `depth ${d.depth}`;
+  const exact = d.depth >= res.empties && d.selectivity === 100;
+  setEngineStatus(partial ? `Thinking… (quick ${depthText})`
+    : `Level ${level} · ${exact ? 'exact' : depthText}${ms != null ? ` · ${(ms / 1000).toFixed(1)}s` : ''}`);
+}
+
+async function requestAnalysis() {
+  const token = ++anaToken;
+  clearScores();
+  if (!analysisOn) { if (engine) engine.cancel(); setEngineStatus('Off'); return; }
+  ensureEngine();
+
+  const st = cur();
+  if (st.over) { engine.cancel(); setEngineStatus('Game over'); return; }
+  const board = toEdaxBoard(st.board, st.toMove);
+  const key = board + '|' + level;
+  if (cache.has(key)) { const c = cache.get(key); showAnalysis(c, false, c.ms); return; }
+  if (engineState !== 'ready') { setEngineStatus('Loading Edax…'); }
+  else setEngineStatus('Thinking…');
+
+  if (level > QUICK_LEVEL) {
+    const quick = await engine.analyze(board, QUICK_LEVEL, 60);
+    if (token !== anaToken || quick.stale) return;
+    if (quick.error) { setEngineStatus('Engine error: ' + quick.error, true); return; }
+    showAnalysis(quick, true);
+  }
+  const t = performance.now();
+  const res = await engine.analyze(board, level, 60);
+  if (token !== anaToken || res.stale) return;
+  if (res.error) { setEngineStatus('Engine error: ' + res.error, true); return; }
+  res.ms = performance.now() - t;
+  cache.set(key, res);
+  showAnalysis(res, false, res.ms);
+}
+
+$('opt-edax').checked = analysisOn;
+$('opt-level').value = String(level);
+$('opt-edax').onchange = (e) => { analysisOn = e.target.checked; store.set('edax', analysisOn); requestAnalysis(); };
+$('opt-level').onchange = (e) => { level = Number(e.target.value); store.set('level', level); requestAnalysis(); };
 
 // ---------- Actions ----------
 function onCell(s) {

@@ -45,6 +45,21 @@
         <label class="toggle"><input type="checkbox" id="opt-hints" checked> Show legal moves</label>
       </div>
 
+      <div class="engine">
+        <div class="engine-head">
+          <label class="toggle"><input type="checkbox" id="opt-edax"> Edax analysis</label>
+          <label class="level">Level
+            <select id="opt-level">
+              <option>1</option><option>4</option><option>8</option><option>12</option>
+              <option>16</option><option>18</option><option>20</option><option>21</option>
+              <option>24</option><option>26</option><option>28</option><option>30</option>
+            </select>
+          </label>
+        </div>
+        <div class="engine-status" id="engine-status">Off</div>
+        <div class="engine-lines" id="engine-lines"></div>
+      </div>
+
       <div class="section-title">Moves</div>
       <div class="moves" id="moves"></div>
 
