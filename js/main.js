@@ -3,6 +3,8 @@ import {
   initialState, playMove, parseTranscript,
 } from './reversi.js';
 import { Engine, toEdaxBoard } from './engine.js';
+import { Book } from './book.js';
+import { Repetition, opponentCandidates, pickRandom } from './train.js';
 
 // ---------- Settings (per browser) ----------
 const store = {
@@ -161,36 +163,55 @@ function ensureEngine() {
   });
 }
 
-function clearScores() {
+const fmtScore = (v) => (v > 0 ? '+' + v : String(v));
+const fmtPv = (pv) => (pv.match(/.{2}/g) || []).map((m) => (m === 'ps' ? 'pass' : m)).slice(0, 12).join(' ');
+const moveSq = (name) => (Number(name[1]) - 1) * 8 + (name.charCodeAt(0) - 97);
+
+// ---------- Scores drawn on the board: book first, Edax otherwise ----------
+let edaxView = null; // { res, partial } for the current position
+
+function clearBoardScores() {
   for (const c of cells) {
     c.classList.remove('scored', 'peek');
     const s = c.querySelector('.score');
     if (s) s.remove();
   }
-  $('engine-lines').innerHTML = '';
 }
 
-const fmtScore = (v) => (v > 0 ? '+' + v : String(v));
-const fmtPv = (pv) => (pv.match(/.{2}/g) || []).map((m) => (m === 'ps' ? 'pass' : m)).slice(0, 12).join(' ');
+// list: [{ sq, score, leaf }]
+function paintScores(list, partial) {
+  clearBoardScores();
+  const shown = list.filter((m) => m.sq < 64);
+  if (!shown.length) return;
+  const best = Math.max(...shown.map((m) => m.score));
+  for (const m of shown) {
+    const el = document.createElement('div');
+    el.className = 'score' + (m.score === best ? ' best' : best - m.score >= 6 ? ' bad' : '')
+      + (m.leaf ? ' leaf' : '') + (partial ? ' partial' : '');
+    el.textContent = fmtScore(m.score);
+    cells[m.sq].appendChild(el);
+    cells[m.sq].classList.add('scored');
+  }
+}
+
+function paintBoard() {
+  if (mode === 'train') return;
+  if (bookOn && bookInfo) paintScores(bookInfo.moves.map((m) => ({ sq: m.sq, score: m.score, leaf: !m.inBook })), false);
+  else if (edaxView) paintScores(edaxView.res.moves.map((m) => ({ sq: moveSq(m.move), score: m.score })), edaxView.partial);
+  else clearBoardScores();
+}
 
 function showAnalysis(res, partial, ms) {
-  clearScores();
+  $('engine-lines').innerHTML = '';
   const moves = (res.moves || []).slice().sort((a, b) => b.score - a.score);
+  edaxView = moves.length ? { res: { ...res, moves }, partial } : null;
+  paintBoard();
   if (!moves.length) return;
   const best = moves[0].score;
 
-  for (const m of moves) {
-    const sq = (Number(m.move[1]) - 1) * 8 + (m.move.charCodeAt(0) - 97);
-    const el = document.createElement('div');
-    el.className = 'score' + (m.score === best ? ' best' : best - m.score >= 6 ? ' bad' : '') + (partial ? ' partial' : '');
-    el.textContent = fmtScore(m.score);
-    cells[sq].appendChild(el);
-    cells[sq].classList.add('scored');
-  }
-
   const lines = $('engine-lines');
   for (const m of moves) {
-    const sq = (Number(m.move[1]) - 1) * 8 + (m.move.charCodeAt(0) - 97);
+    const sq = moveSq(m.move);
     const row = document.createElement('div');
     row.className = 'eline' + (m.score === best ? ' best' : '');
     row.innerHTML = `<span class="m">${m.move}</span><span class="s">${fmtScore(m.score)}</span><span class="pv">${fmtPv(m.pv)}</span>`;
@@ -208,9 +229,79 @@ function showAnalysis(res, partial, ms) {
     : `Level ${level} · ${exact ? 'exact' : depthText}${ms != null ? ` · ${(ms / 1000).toFixed(1)}s` : ''}`);
 }
 
+// ---------- Opening book ----------
+let book = null;
+let bookName = '';
+let bookOn = store.get('bookOn', true);
+let bookInfo = null;
+
+function setBookStatus(text, isErr = false) {
+  const el = $('book-status');
+  el.textContent = text;
+  el.classList.toggle('err', isErr);
+}
+
+function updateBook() {
+  const st = cur();
+  const lines = $('book-lines');
+  lines.innerHTML = '';
+  bookInfo = book && bookOn && !st.over ? book.probe(st.board, st.toMove) : null;
+  if (!book) { setBookStatus('No book loaded. Your book is read in this browser only and never uploaded.'); return; }
+  if (!bookOn) { setBookStatus('Book scores hidden'); return; }
+  if (st.over) { setBookStatus('Game over'); return; }
+  if (!bookInfo) { setBookStatus('Out of book' + (analysisOn ? ' (Edax scores shown)' : '')); return; }
+
+  const i = bookInfo;
+  setBookStatus(`In book · value ${fmtScore(i.value)} · ${i.nLink} book move${i.nLink === 1 ? '' : 's'}`);
+  const best = i.moves.length ? i.moves[0].score : 0;
+  for (const m of i.moves) {
+    const row = document.createElement('div');
+    row.className = 'eline' + (m.score === best ? ' best' : '');
+    const name = m.sq === 64 ? 'pass' : sqName(m.sq);
+    row.innerHTML = `<span class="m">${name}</span><span class="s">${fmtScore(m.score)}</span>`
+      + `<span class="pv">${m.inBook ? 'book' : 'best non-book move'}</span>`;
+    if (m.sq < 64) {
+      row.onmouseenter = () => cells[m.sq].classList.add('peek');
+      row.onmouseleave = () => cells[m.sq].classList.remove('peek');
+      row.onclick = () => onCell(m.sq);
+    }
+    lines.appendChild(row);
+  }
+}
+
+$('opt-book').checked = bookOn;
+$('opt-book').onchange = (e) => { bookOn = e.target.checked; store.set('bookOn', bookOn); updateBook(); paintBoard(); };
+$('btn-book').onclick = () => $('book-file').click();
+$('book-file').onchange = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  setBookStatus(`Reading ${file.name}…`);
+  try {
+    const t = performance.now();
+    book = await Book.fromFile(file);
+    bookName = file.name;
+    $('book-meta').textContent = `${bookName} · ${book.n.toLocaleString()} positions · level ${book.level} · ${book.date}`;
+    $('btn-book').textContent = 'Change…';
+    console.log(`Book loaded in ${Math.round(performance.now() - t)} ms`);
+  } catch (err) {
+    book = null;
+    setBookStatus('Could not read book: ' + err.message, true);
+    return;
+  } finally {
+    e.target.value = '';
+  }
+  updateBook();
+  paintBoard();
+  if (mode === 'train' && T.phase === 'idle') { setFeedback('Book loaded. Press <b>Start</b>.'); renderTrainStats(); }
+};
+
 async function requestAnalysis() {
   const token = ++anaToken;
-  clearScores();
+  if (mode === 'train') { edaxView = null; return; } // training draws its own feedback
+  edaxView = null;
+  $('engine-lines').innerHTML = '';
+  updateBook();
+  paintBoard();
   if (!analysisOn) { if (engine) engine.cancel(); setEngineStatus('Off'); return; }
   ensureEngine();
 
@@ -242,8 +333,240 @@ $('opt-level').value = String(level);
 $('opt-edax').onchange = (e) => { analysisOn = e.target.checked; store.set('edax', analysisOn); requestAnalysis(); };
 $('opt-level').onchange = (e) => { level = Number(e.target.value); store.set('level', level); requestAnalysis(); };
 
+// ---------- Training ----------
+let mode = 'analyse';
+const srs = new Repetition();
+const T = {
+  phase: 'idle',          // idle | user | checking | trainer | wrong | end
+  colorPref: store.get('trainColor', 1), // 1 black, 2 white, 3 both
+  margin: store.get('trainMargin', 2),
+  lineColor: BLACK,
+  retrying: false,
+  review: null,           // review item being replayed, if any
+  line: { correct: 0, total: 0 },
+  session: { correct: 0, total: 0 },
+  timer: 0,
+};
+const colorName = (p) => (p === BLACK ? 'Black' : 'White');
+const prefColors = () => (T.colorPref === 3 ? [BLACK, WHITE] : [T.colorPref]);
+
+function setFeedback(html, kind = '') {
+  const el = $('train-feedback');
+  el.innerHTML = html;
+  el.className = 'feedback' + (kind ? ' ' + kind : '');
+}
+
+function showButtons(...ids) {
+  for (const id of ['btn-train-start', 'btn-train-retry', 'btn-train-best', 'btn-train-next']) $(id).hidden = !ids.includes(id);
+}
+
+function renderTrainStats() {
+  const c = srs.count(prefColors());
+  const s = T.session;
+  $('train-stats').textContent = `Session: ${s.correct}/${s.total} correct`
+    + ` · Reviews due: ${c.due} · Saved positions: ${c.total}`;
+}
+
+function clearMarks() {
+  for (const c of cells) c.classList.remove('wrong', 'right');
+  clearBoardScores();
+}
+
+function setMode(m) {
+  mode = m;
+  document.body.classList.toggle('training', m === 'train');
+  $('tab-analyse').classList.toggle('active', m === 'analyse');
+  $('tab-train').classList.toggle('active', m === 'train');
+  clearTimeout(T.timer);
+  T.phase = 'idle';
+  clearMarks();
+  if (m === 'train') {
+    if (engine) engine.cancel();
+    setFeedback(book ? 'Choose your colour, then press <b>Start</b>.' : 'Open your book (below), then press <b>Start</b>.');
+    showButtons('btn-train-start');
+    renderTrainStats();
+  }
+  render();
+}
+
+// Play a move during training (keeps the move list consistent).
+function pushMove(sq) {
+  const st = playMove(cur(), sq);
+  if (!st) return false;
+  states = states.slice(0, cursor + 1);
+  states.push(st);
+  cursor++;
+  render(true);
+  return true;
+}
+
+const probe = (st) => (book ? book.probe(st.board, st.toMove) : null);
+const bestScore = (info) => Math.max(...info.moves.filter((m) => m.sq < 64).map((m) => m.score));
+const lineSoFar = () => states.slice(1, cursor + 1).map((s) => sqName(s.move)).join('');
+
+function startLine() {
+  clearTimeout(T.timer);
+  clearMarks();
+  if (!book) { setFeedback('Open your book first.', 'bad'); return; }
+  T.line = { correct: 0, total: 0 };
+  T.retrying = false;
+  ensureEngine();
+
+  const due = srs.due(prefColors());
+  if (due.length) {
+    const item = due[0];
+    const { states: parsed, error } = parseTranscript(item.line);
+    if (!error) {
+      T.review = item;
+      T.lineColor = item.color;
+      states = parsed;
+      cursor = states.length - 1;
+      render();
+      userTurn(`Review (${due.length} due): you play <b>${colorName(item.color)}</b>.`);
+      return;
+    }
+  }
+  T.review = null;
+  T.lineColor = T.colorPref === 3 ? (Math.random() < 0.5 ? BLACK : WHITE) : T.colorPref;
+  states = [initialState()];
+  cursor = 0;
+  render();
+  if (cur().toMove === T.lineColor) userTurn(`New line: you play <b>${colorName(T.lineColor)}</b>.`);
+  else trainerTurn();
+}
+
+function endLine(reason) {
+  T.phase = 'end';
+  const l = T.line;
+  setFeedback(`${reason}<span class="sub">This line: ${l.correct}/${l.total} correct.</span>`, 'end');
+  showButtons('btn-train-next');
+  renderTrainStats();
+}
+
+function userTurn(intro = '') {
+  const st = cur();
+  if (st.over) { endLine('Game over.'); return; }
+  if (st.toMove !== T.lineColor) { trainerTurn(); return; }
+  const info = probe(st);
+  if (!info || info.nLink === 0) { endLine('End of book line.'); return; }
+  const legal = legalMoves(st.board, st.toMove);
+  if (legal.length === 1) { // forced move: nothing to train
+    T.phase = 'trainer';
+    T.timer = setTimeout(() => { pushMove(legal[0]); T.timer = setTimeout(trainerTurn, 450); }, 350);
+    return;
+  }
+  T.phase = 'user';
+  setFeedback(`${intro ? intro + '<br>' : ''}Your move as <b>${colorName(T.lineColor)}</b>: find the best move.`);
+  showButtons('btn-train-next');
+}
+
+function trainerTurn() {
+  const st = cur();
+  if (st.over) { endLine('Game over.'); return; }
+  if (st.toMove === T.lineColor) { userTurn(); return; }
+  const info = probe(st);
+  if (!info) { endLine('End of book line.'); return; }
+  const cands = opponentCandidates(info, T.margin);
+  if (!cands.length) { endLine('End of book line.'); return; }
+  T.phase = 'trainer';
+  T.timer = setTimeout(() => {
+    pushMove(pickRandom(cands).sq);
+    T.timer = setTimeout(() => (cur().toMove === T.lineColor ? userTurn() : trainerTurn()), 450);
+  }, 350);
+}
+
+// Score of `sq` for the side to move in `st`: book first, Edax if the move is not in the book.
+async function moveScore(st, info, sq) {
+  const entry = info.moves.find((m) => m.sq === sq);
+  if (entry) return { score: entry.score, source: entry.inBook ? 'book' : 'book (best non-book move)' };
+  const child = playMove(st, sq);
+  if (child.over) {
+    const { black, white } = countDiscs(child.board);
+    const diff = st.toMove === BLACK ? black - white : white - black;
+    return { score: diff, source: 'final score' };
+  }
+  const res = await engine.analyze(toEdaxBoard(child.board, child.toMove), level, 1);
+  if (res.stale || res.error || !res.moves || !res.moves.length) return null;
+  const s = res.moves[0].score;
+  return { score: child.toMove === st.toMove ? s : -s, source: `Edax level ${level}` };
+}
+
+async function trainClick(sq) {
+  if (T.phase !== 'user') return;
+  const st = cur();
+  if (!playMove(st, sq)) return;
+  const info = probe(st);
+  T.phase = 'checking';
+  setFeedback('Checking…');
+  const r = await moveScore(st, info, sq);
+  if (mode !== 'train' || cur() !== st) return;
+  if (!r) { T.phase = 'user'; setFeedback('Could not score that move. Try again.', 'bad'); return; }
+
+  const best = bestScore(info);
+  const correct = r.score >= best;
+  const key = book.recordKey(info.index);
+  if (!T.retrying) {
+    srs.record(key, lineSoFar(), T.lineColor, correct);
+    T.line.total++; T.session.total++;
+    if (correct) { T.line.correct++; T.session.correct++; }
+  }
+  renderTrainStats();
+
+  if (correct) {
+    T.retrying = false;
+    const others = info.moves.filter((m) => m.sq < 64 && m.score === best && m.sq !== sq).map((m) => sqName(m.sq));
+    setFeedback(`<b>${sqName(sq)} ${fmtScore(r.score)}</b>: correct.`
+      + (others.length ? `<span class="sub">Also best: ${others.join(', ')}</span>` : ''), 'good');
+    pushMove(sq);
+    T.phase = 'trainer';
+    T.timer = setTimeout(trainerTurn, 650);
+    return;
+  }
+
+  // Wrong: show all scores for this position, mark the chosen square.
+  T.phase = 'wrong';
+  const list = info.moves.filter((m) => m.sq < 64).map((m) => ({ sq: m.sq, score: m.score, leaf: !m.inBook }));
+  if (!list.find((m) => m.sq === sq)) list.push({ sq, score: r.score });
+  paintScores(list, false);
+  cells[sq].classList.add('wrong');
+  const bestMoves = info.moves.filter((m) => m.sq < 64 && m.score === best);
+  for (const m of bestMoves) cells[m.sq].classList.add('right');
+  setFeedback(`<b>${sqName(sq)} ${fmtScore(r.score)}</b> loses ${best - r.score} disc${best - r.score === 1 ? '' : 's'}.`
+    + ` Best: <b>${bestMoves.map((m) => sqName(m.sq) + ' ' + fmtScore(m.score)).join(', ')}</b>`
+    + `<span class="sub">Score source: ${r.source}. This position is saved for review.</span>`, 'bad');
+  showButtons('btn-train-retry', 'btn-train-best', 'btn-train-next');
+}
+
+$('tab-analyse').onclick = () => setMode('analyse');
+$('tab-train').onclick = () => setMode('train');
+$('opt-train-color').value = String(T.colorPref);
+$('opt-train-margin').value = String(T.margin);
+$('opt-train-color').onchange = (e) => { T.colorPref = Number(e.target.value); store.set('trainColor', T.colorPref); renderTrainStats(); };
+$('opt-train-margin').onchange = (e) => { T.margin = Number(e.target.value); store.set('trainMargin', T.margin); };
+$('btn-train-start').onclick = startLine;
+$('btn-train-next').onclick = startLine;
+$('btn-train-retry').onclick = () => {
+  clearMarks();
+  T.retrying = true;
+  T.phase = 'user';
+  setFeedback('Try again: find the best move.');
+  showButtons('btn-train-next');
+};
+$('btn-train-best').onclick = () => {
+  const info = probe(cur());
+  clearMarks();
+  if (!info) return;
+  const best = bestScore(info);
+  const pick = info.moves.find((m) => m.sq < 64 && m.inBook && m.score === best) || info.moves.find((m) => m.sq < 64 && m.score === best);
+  T.retrying = false;
+  pushMove(pick.sq);
+  T.phase = 'trainer';
+  T.timer = setTimeout(trainerTurn, 450);
+};
+
 // ---------- Actions ----------
 function onCell(s) {
+  if (mode === 'train') { trainClick(s); return; }
   const next = states[cursor + 1];
   if (next && next.move === s) { cursor++; render(true); return; }
   const st = playMove(cur(), s);
@@ -255,7 +578,8 @@ function onCell(s) {
 }
 
 function goTo(i) {
-  i = Math.max(0, Math.min(states.length - 1, i));
+  if (mode === 'train') return;
+  i =Math.max(0, Math.min(states.length - 1, i));
   if (i === cursor) return;
   const step = i === cursor + 1;
   cursor = i;

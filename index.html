@@ -23,6 +23,11 @@
     <aside class="panel">
       <h1>Reversi Trainer</h1>
 
+      <div class="tabs" role="tablist">
+        <button id="tab-analyse" class="tab active" role="tab">Analyse</button>
+        <button id="tab-train" class="tab" role="tab">Train</button>
+      </div>
+
       <div class="score">
         <div class="side" id="side-black">
           <span class="chip black"></span><span class="count" id="count-black">2</span>
@@ -33,42 +38,87 @@
         </div>
       </div>
 
-      <div class="nav">
-        <button id="btn-first" title="First (Home)">&#x23EE;</button>
-        <button id="btn-back" title="Back (&larr;)">&#x25C0;</button>
-        <button id="btn-fwd" title="Forward (&rarr;)">&#x25B6;</button>
-        <button id="btn-last" title="Last (End)">&#x23ED;</button>
+      <!-- Training -->
+      <div class="train-only train">
+        <div class="train-setup">
+          <label>You play
+            <select id="opt-train-color">
+              <option value="1">Black</option>
+              <option value="2">White</option>
+              <option value="3">Both</option>
+            </select>
+          </label>
+          <label title="The trainer picks book moves within this many discs of the best book move">Opponent within
+            <select id="opt-train-margin">
+              <option value="0">0</option><option value="1">1</option><option value="2">2</option>
+              <option value="3">3</option><option value="4">4</option><option value="6">6</option>
+            </select> discs
+          </label>
+        </div>
+        <div class="feedback" id="train-feedback">Open your book, then press Start.</div>
+        <div class="train-actions">
+          <button id="btn-train-start" class="primary">Start</button>
+          <button id="btn-train-retry" hidden>Retry</button>
+          <button id="btn-train-best" hidden>Play best &amp; continue</button>
+          <button id="btn-train-next" hidden>Next line</button>
+        </div>
+        <div class="train-stats" id="train-stats"></div>
       </div>
 
-      <div class="options">
-        <button id="btn-new" class="wide">New game</button>
-        <label class="toggle"><input type="checkbox" id="opt-hints" checked> Show legal moves</label>
+      <!-- Analysis -->
+      <div class="analyse-only">
+        <div class="nav">
+          <button id="btn-first" title="First (Home)">&#x23EE;</button>
+          <button id="btn-back" title="Back (&larr;)">&#x25C0;</button>
+          <button id="btn-fwd" title="Forward (&rarr;)">&#x25B6;</button>
+          <button id="btn-last" title="Last (End)">&#x23ED;</button>
+        </div>
+
+        <div class="options">
+          <button id="btn-new" class="wide">New game</button>
+          <label class="toggle"><input type="checkbox" id="opt-hints" checked> Show legal moves</label>
+        </div>
       </div>
 
       <div class="engine">
         <div class="engine-head">
-          <label class="toggle"><input type="checkbox" id="opt-edax"> Edax analysis</label>
-          <label class="level">Level
-            <select id="opt-level">
-              <option>1</option><option>4</option><option>8</option><option>12</option>
-              <option>16</option><option>18</option><option>20</option><option>21</option>
-              <option>24</option><option>26</option><option>28</option><option>30</option>
-            </select>
-          </label>
+          <label class="toggle"><input type="checkbox" id="opt-book"> Book</label>
+          <button id="btn-book" class="small">Open book…</button>
+          <input type="file" id="book-file" accept=".dat" hidden>
         </div>
-        <div class="engine-status" id="engine-status">Off</div>
-        <div class="engine-lines" id="engine-lines"></div>
+        <div class="book-meta" id="book-meta"></div>
+        <div class="engine-status analyse-only" id="book-status"></div>
+        <div class="engine-lines analyse-only" id="book-lines"></div>
+      </div>
+
+      <div class="analyse-only">
+        <div class="engine">
+          <div class="engine-head">
+            <label class="toggle"><input type="checkbox" id="opt-edax"> Edax analysis</label>
+            <label class="level">Level
+              <select id="opt-level">
+                <option>1</option><option>4</option><option>8</option><option>12</option>
+                <option>16</option><option>18</option><option>20</option><option>21</option>
+                <option>24</option><option>26</option><option>28</option><option>30</option>
+              </select>
+            </label>
+          </div>
+          <div class="engine-status" id="engine-status">Off</div>
+          <div class="engine-lines" id="engine-lines"></div>
+        </div>
       </div>
 
       <div class="section-title">Moves</div>
       <div class="moves" id="moves"></div>
 
-      <div class="section-title">Transcript</div>
-      <textarea id="transcript" spellcheck="false" placeholder="Paste a game, e.g. f5d6c3d3c4f4"></textarea>
-      <div class="row">
-        <button id="btn-load">Load</button>
-        <button id="btn-copy">Copy</button>
-        <span class="msg" id="msg"></span>
+      <div class="analyse-only">
+        <div class="section-title">Transcript</div>
+        <textarea id="transcript" spellcheck="false" placeholder="Paste a game, e.g. f5d6c3d3c4f4"></textarea>
+        <div class="row">
+          <button id="btn-load">Load</button>
+          <button id="btn-copy">Copy</button>
+          <span class="msg" id="msg"></span>
+        </div>
       </div>
     </aside>
   </main>
