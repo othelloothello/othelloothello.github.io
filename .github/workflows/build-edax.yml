@@ -42,7 +42,7 @@ jobs:
             exit 1
           }
           docker run --rm -v "$PWD:/src" -w /src -u "$(id -u):$(id -g)" -e HOME=/tmp -e EM_CACHE=/tmp/emcache "$EMSDK_IMAGE" \
-            emcc -O3 -flto -std=c17 -D_GNU_SOURCE=1 -DNDEBUG -Dmain=edax_main \
+            emcc -O3 -flto -std=c17 -D_GNU_SOURCE=1 -DNDEBUG -Dmain=edax_main -include time.h \
               -Wno-unused-parameter -Wno-unused-function \
               -I edax/src engine/src/edax_wasm.c -lm \
               -o engine/build/edax.js \
