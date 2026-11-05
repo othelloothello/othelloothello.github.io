@@ -63,18 +63,20 @@
           <button id="btn-train-next" hidden>Next line</button>
           <button id="btn-train-copy" hidden title="Copies the moves of this line and the colour you trained">Copy transcript with colour</button>
         </div>
+        <div class="train-explore" id="train-explore"></div>
         <div class="train-stats" id="train-stats"></div>
+      </div>
+
+      <!-- Move navigation: always in Analyse; in Train while playing on after a mistake or out of book -->
+      <div class="nav">
+        <button id="btn-first" title="First (Home)">&#x23EE;</button>
+        <button id="btn-back" title="Back (&larr;)">&#x25C0;</button>
+        <button id="btn-fwd" title="Forward (&rarr;)">&#x25B6;</button>
+        <button id="btn-last" title="Last (End)">&#x23ED;</button>
       </div>
 
       <!-- Analysis -->
       <div class="analyse-only">
-        <div class="nav">
-          <button id="btn-first" title="First (Home)">&#x23EE;</button>
-          <button id="btn-back" title="Back (&larr;)">&#x25C0;</button>
-          <button id="btn-fwd" title="Forward (&rarr;)">&#x25B6;</button>
-          <button id="btn-last" title="Last (End)">&#x23ED;</button>
-        </div>
-
         <div class="options">
           <button id="btn-new" class="wide">New game</button>
           <label class="toggle"><input type="checkbox" id="opt-hints" checked> Show legal moves</label>

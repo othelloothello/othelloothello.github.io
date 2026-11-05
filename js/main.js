@@ -132,6 +132,7 @@ function render(animate = false) {
   renderBoard(animate);
   renderStatus();
   renderMoves();
+  renderExplore();
   const ta = $('transcript');
   if (document.activeElement !== ta) ta.value = transcript();
   requestAnalysis();
@@ -195,7 +196,11 @@ function paintScores(list, partial) {
 }
 
 function paintBoard() {
-  if (mode === 'train') return;
+  if (mode === 'train') {
+    if (!exploring()) return;
+    for (const c of cells) c.classList.remove('wrong', 'right');
+    if (T.phase === 'wrong' && atAnchor()) { paintAnchorMarks(); return; }
+  }
   if (bookOn && bookInfo) paintScores(bookInfo.moves.map((m) => ({ sq: m.sq, score: m.score, leaf: !m.inBook })), false);
   else if (edaxView) paintScores(edaxView.res.moves.map((m) => ({ sq: moveSq(m.move), score: m.score })), edaxView.partial);
   else clearBoardScores();
@@ -297,12 +302,14 @@ $('book-file').onchange = async (e) => {
 
 async function requestAnalysis() {
   const token = ++anaToken;
-  if (mode === 'train') { edaxView = null; return; } // training draws its own feedback
+  if (mode === 'train' && !exploring()) { edaxView = null; return; } // training draws its own feedback
   edaxView = null;
   $('engine-lines').innerHTML = '';
   updateBook();
   paintBoard();
-  if (!analysisOn) { if (engine) engine.cancel(); setEngineStatus('Off'); return; }
+  // Playing on in Train: book scores if in book, otherwise Edax (always on there).
+  if (mode === 'train' && (bookInfo || (T.phase === 'wrong' && atAnchor()))) return;
+  if (!analysisOn && mode !== 'train') { if (engine) engine.cancel(); setEngineStatus('Off'); return; }
   ensureEngine();
 
   const st = cur();
@@ -346,6 +353,7 @@ const T = {
   line: { correct: 0, total: 0 },
   session: { correct: 0, total: 0 },
   timer: 0,
+  anchor: null,           // trained position saved at a mistake or line end: { states, cursor, marks }
 };
 const colorName = (p) => (p === BLACK ? 'Black' : 'White');
 const prefColors = () => (T.colorPref === 3 ? [BLACK, WHITE] : [T.colorPref]);
@@ -379,6 +387,7 @@ function setMode(m) {
   $('tab-train').classList.toggle('active', m === 'train');
   clearTimeout(T.timer);
   T.phase = 'idle';
+  T.anchor = null;
   clearMarks();
   if (m === 'train') {
     if (engine) engine.cancel();
@@ -404,8 +413,39 @@ const probe = (st) => (book ? book.probe(st.board, st.toMove) : null);
 const bestScore = (info) => Math.max(...info.moves.filter((m) => m.sq < 64).map((m) => m.score));
 const lineSoFar = () => states.slice(1, cursor + 1).map((s) => sqName(s.move)).join('');
 
+// After a mistake or at the end of a line the user may play on and step through the moves
+// ("exploring"). The trained position is kept in T.anchor so Retry / Play best can return to it.
+function exploring() { return mode === 'train' && (T.phase === 'wrong' || T.phase === 'end'); }
+function atAnchor() { return !!T.anchor && cur() === T.anchor.states[T.anchor.cursor]; }
+function setAnchor(marks = null) { T.anchor = { states: states.slice(), cursor, marks }; }
+function restoreAnchor() {
+  if (!T.anchor) return;
+  states = T.anchor.states.slice();
+  cursor = T.anchor.cursor;
+  render();
+}
+function paintAnchorMarks() {
+  const m = T.anchor.marks;
+  if (!m) return;
+  paintScores(m.list, false);
+  cells[m.wrong].classList.add('wrong');
+  for (const s of m.right) cells[s].classList.add('right');
+}
+function renderExplore() {
+  const on = exploring() && !!T.anchor;
+  document.body.classList.toggle('exploring', on);
+  const el = $('train-explore');
+  if (!on) { el.textContent = ''; return; }
+  el.textContent = atAnchor()
+    ? 'Click any move to play on from here. Use ◀ ▶ or the arrow keys to step through the moves.'
+    : 'Playing on from the trained position.'
+      + (T.phase === 'wrong' ? ' Retry and Play best & continue go back to it.' : '');
+}
+
 function startLine() {
   clearTimeout(T.timer);
+  T.phase = 'idle';
+  T.anchor = null;
   clearMarks();
   if (!book) { setFeedback('Open your book first.', 'bad'); return; }
   T.line = { correct: 0, total: 0 };
@@ -458,6 +498,9 @@ function endLine(reason) {
   setFeedback(`${reason}${lastHtml}<span class="sub">This line: ${l.correct}/${l.total} correct.</span>`, 'end');
   showButtons('btn-train-next', 'btn-train-copy');
   renderTrainStats();
+  setAnchor();
+  renderExplore();
+  requestAnalysis();
 }
 
 function userTurn(intro = '') {
@@ -548,6 +591,8 @@ async function trainClick(sq) {
   cells[sq].classList.add('wrong');
   const bestMoves = info.moves.filter((m) => m.sq < 64 && m.score === best);
   for (const m of bestMoves) cells[m.sq].classList.add('right');
+  setAnchor({ list, wrong: sq, right: bestMoves.map((m) => m.sq) });
+  renderExplore();
   setFeedback(`<b>${sqName(sq)} ${fmtScore(r.score)}</b> loses ${best - r.score} disc${best - r.score === 1 ? '' : 's'}.`
     + ` Best: <b>${bestMoves.map((m) => sqName(m.sq) + ' ' + fmtScore(m.score)).join(', ')}</b>`
     + `<span class="sub">Score source: ${r.source}. This position is saved for review.</span>`, 'bad');
@@ -570,27 +615,30 @@ $('btn-train-copy').onclick = async () => {
   setTimeout(() => { btn.textContent = 'Copy transcript with colour'; }, 1500);
 };
 $('btn-train-retry').onclick = () => {
+  restoreAnchor();
   clearMarks();
   T.retrying = true;
   T.phase = 'user';
+  renderExplore();
   setFeedback('Try again: find the best move.');
   showButtons('btn-train-next');
 };
 $('btn-train-best').onclick = () => {
+  restoreAnchor();
   const info = probe(cur());
   clearMarks();
   if (!info) return;
   const best = bestScore(info);
   const pick = info.moves.find((m) => m.sq < 64 && m.inBook && m.score === best) || info.moves.find((m) => m.sq < 64 && m.score === best);
   T.retrying = false;
-  pushMove(pick.sq);
   T.phase = 'trainer';
+  pushMove(pick.sq);
   T.timer = setTimeout(trainerTurn, 450);
 };
 
 // ---------- Actions ----------
 function onCell(s) {
-  if (mode === 'train') { trainClick(s); return; }
+  if (mode === 'train' && !exploring()) { trainClick(s); return; }
   const next = states[cursor + 1];
   if (next && next.move === s) { cursor++; render(true); return; }
   const st = playMove(cur(), s);
@@ -602,8 +650,8 @@ function onCell(s) {
 }
 
 function goTo(i) {
-  if (mode === 'train') return;
-  i =Math.max(0, Math.min(states.length - 1, i));
+  if (mode === 'train' && !exploring()) return;
+  i = Math.max(0, Math.min(states.length - 1, i));
   if (i === cursor) return;
   const step = i === cursor + 1;
   cursor = i;
