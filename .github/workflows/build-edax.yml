@@ -1,0 +1,62 @@
+# Compiles Edax to WebAssembly and commits the result to engine/build/.
+# Runs when the wrapper or this file changes, or manually from the Actions tab.
+name: Build Edax (WebAssembly)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'engine/src/**'
+      - '.github/workflows/build-edax.yml'
+
+permissions:
+  contents: write
+
+env:
+  EDAX_REPO: abulmo/edax-reversi
+  EDAX_COMMIT: 786421f355219ade872ce7285c1cab1eaf67836a   # Edax 4.7 + later fixes
+  EMSDK_IMAGE: emscripten/emsdk:3.1.74
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out site
+        uses: actions/checkout@v4
+
+      - name: Check out Edax source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.EDAX_REPO }}
+          ref: ${{ env.EDAX_COMMIT }}
+          path: edax
+
+      - name: Compile with Emscripten
+        run: |
+          mkdir -p engine/build
+          docker run --rm -v "$PWD:/src" -w /src -u "$(id -u):$(id -g)" "$EMSDK_IMAGE" \
+            emcc -O3 -flto -std=c17 -D_GNU_SOURCE=1 -DNDEBUG -Dmain=edax_main \
+              -Wno-unused-parameter -Wno-unused-function \
+              -I edax/src engine/src/edax_wasm.c -lm \
+              -o engine/build/edax.js \
+              -sMODULARIZE=1 -sEXPORT_NAME=createEdax -sENVIRONMENT=worker \
+              -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=64MB -sSTACK_SIZE=8MB \
+              -sEXPORTED_FUNCTIONS=_edax_init,_edax_analyze \
+              -sEXPORTED_RUNTIME_METHODS=ccall,cwrap \
+              --preload-file edax/bin/data/eval.dat@data/eval.dat
+          cp edax/LICENSE engine/build/LICENSE-edax.txt
+          echo "Edax source: https://github.com/$EDAX_REPO/tree/$EDAX_COMMIT" > engine/build/SOURCE.txt
+          ls -la engine/build
+
+      - name: Commit build output
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add engine/build
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Build Edax WebAssembly (${EDAX_COMMIT:0:7})"
+            git push
+          fi
