@@ -296,6 +296,15 @@ textarea:focus { outline: none; border-color: var(--accent); }
 .cell .score.partial { opacity: .55; }
 .cell .score.leaf { font-style: italic; opacity: .75; }
 .cell .score.leaf::after { content: "*"; font-size: 60%; margin-left: 1px; }
+/* Score with Umigame numbers below it: Black's dark, White's light. */
+.cell .score:has(.umi) { flex-direction: column; gap: 1px; }
+.cell .score .umi {
+  display: flex; gap: 6px;
+  font-size: calc(var(--board) * 0.019); font-weight: 700;
+  text-shadow: none;
+}
+.cell .score .ub { color: #0b0f0d; }
+.cell .score .uw { color: #ffffff; text-shadow: 0 1px 1px rgba(0,0,0,.45); }
 
 button.small { padding: 4px 10px; font-size: 12px; }
 .book-meta { font-size: 11px; color: var(--muted); margin-top: 4px; word-break: break-all; }

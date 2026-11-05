@@ -190,9 +190,89 @@ function paintScores(list, partial) {
     el.className = 'score' + (m.score === best ? ' best' : best - m.score >= 6 ? ' bad' : '')
       + (m.leaf ? ' leaf' : '') + (partial ? ' partial' : '');
     el.textContent = fmtScore(m.score);
+    if (m.umi) {
+      // Umigame numbers of the position after this move: Black's (dark) and White's (light).
+      el.innerHTML = `<span class="v">${fmtScore(m.score)}</span>`
+        + `<span class="umi"><span class="ub">${fmtCount(m.umi.b)}</span><span class="uw">${fmtCount(m.umi.w)}</span></span>`;
+      el.title = `Umigame: Black ${m.umi.b}, White ${m.umi.w}`;
+    }
     cells[m.sq].appendChild(el);
     cells[m.sq].classList.add('scored');
   }
+}
+
+const fmtCount = (n) => (n < 10000 ? String(n) : n < 1e6 ? Math.round(n / 1000) + 'k' : (n / 1e6).toPrecision(2) + 'M');
+
+// Umigame numbers { b, w } of a position, or of the position after `sq` is played.
+// null while the numbers are still being computed in the background.
+function umiOf(st) {
+  if (!book || st.over) return { b: 1, w: 1 };
+  let hit = book.find(st.board, st.toMove), mover = st.toMove;
+  if (!hit) { mover = 3 - st.toMove; hit = book.find(st.board, mover); } // pass positions
+  if (!hit) return { b: 1, w: 1 };
+  const u = book.umigameOf(hit.index);
+  if (!u) return null;
+  const [m, t] = u;
+  return mover === BLACK ? { b: m, w: t } : { b: t, w: m };
+}
+
+// Compute all Umigame numbers after the book loads (in a worker; in slices here if that
+// fails), then repaint.
+let umiWorker = null;
+function computeUmigame(b) {
+  if (umiWorker) { umiWorker.terminate(); umiWorker = null; }
+  const progress = (done) => {
+    $('book-meta').dataset.umi = `Umigame numbers: computing… ${Math.floor(done * 100)}%`;
+    renderBookMeta();
+  };
+  const tick = () => { // fallback on the main thread
+    if (book !== b) return; // another book was opened
+    const done = b.umigameStep(30);
+    if (done < 1) { progress(done); setTimeout(tick, 0); return; }
+    umigameReady(b);
+  };
+  try {
+    const w = new Worker(new URL('./umigame-worker.js', import.meta.url), { type: 'module' });
+    umiWorker = w;
+    w.onmessage = (e) => {
+      if (book !== b) { w.terminate(); return; }
+      const d = e.data;
+      if (d.umi) { b.umigameSet(d.umi); w.terminate(); umiWorker = null; umigameReady(b); }
+      else if (d.error) { w.terminate(); umiWorker = null; setTimeout(tick, 0); }
+      else progress(d.progress);
+    };
+    w.onerror = () => { w.terminate(); umiWorker = null; setTimeout(tick, 0); };
+    w.postMessage(b.dv.buffer.slice(0));
+  } catch {
+    setTimeout(tick, 0);
+  }
+}
+function umigameReady(b) {
+  if (book !== b) return;
+  delete $('book-meta').dataset.umi;
+  renderBookMeta();
+  if (T.phase === 'wrong' && T.anchor && T.anchor.marks) { // add the numbers to the mistake view
+    const st = T.anchor.states[T.anchor.cursor], old = T.anchor.marks.list;
+    const fresh = bookList(st, probe(st));
+    for (const e of old) if (!fresh.find((f) => f.sq === e.sq)) fresh.push(e); // the wrong move's Edax score
+    T.anchor.marks.list = fresh;
+  }
+  if (mode === 'analyse' || exploring()) requestAnalysis();
+}
+function renderBookMeta() {
+  const el = $('book-meta');
+  el.textContent = `${bookName} · ${book.n.toLocaleString()} positions · level ${book.level} · ${book.date}`
+    + (el.dataset.umi ? ` · ${el.dataset.umi}` : '');
+}
+function umiAfter(st, sq) {
+  const child = playMove(st, sq);
+  return child ? umiOf(child) : null;
+}
+
+// Book moves of `info` (position `st`) for painting; book moves carry their Umigame numbers.
+function bookList(st, info) {
+  return info.moves.filter((m) => m.sq < 64)
+    .map((m) => ({ sq: m.sq, score: m.score, leaf: !m.inBook, umi: m.inBook ? umiAfter(st, m.sq) : null }));
 }
 
 function paintBoard() {
@@ -201,7 +281,7 @@ function paintBoard() {
     for (const c of cells) c.classList.remove('wrong', 'right');
     if (T.phase === 'wrong' && atAnchor()) { paintAnchorMarks(); return; }
   }
-  if (bookOn && bookInfo) paintScores(bookInfo.moves.map((m) => ({ sq: m.sq, score: m.score, leaf: !m.inBook })), false);
+  if (bookOn && bookInfo) paintScores(bookList(cur(), bookInfo), false);
   else if (edaxView) paintScores(edaxView.res.moves.map((m) => ({ sq: moveSq(m.move), score: m.score })), edaxView.partial);
   else clearBoardScores();
 }
@@ -257,14 +337,17 @@ function updateBook() {
   if (!bookInfo) { setBookStatus('Out of book' + (analysisOn ? ' (Edax scores shown)' : '')); return; }
 
   const i = bookInfo;
-  setBookStatus(`In book · value ${fmtScore(i.value)} · ${i.nLink} book move${i.nLink === 1 ? '' : 's'}`);
+  const u = umiOf(st);
+  setBookStatus(`In book · value ${fmtScore(i.value)} · ${i.nLink} book move${i.nLink === 1 ? '' : 's'}`
+    + (u ? ` · Umigame Black ${u.b}, White ${u.w}` : ''));
   const best = i.moves.length ? i.moves[0].score : 0;
   for (const m of i.moves) {
     const row = document.createElement('div');
     row.className = 'eline' + (m.score === best ? ' best' : '');
     const name = m.sq === 64 ? 'pass' : sqName(m.sq);
+    const mu = m.inBook && m.sq < 64 ? umiAfter(st, m.sq) : null;
     row.innerHTML = `<span class="m">${name}</span><span class="s">${fmtScore(m.score)}</span>`
-      + `<span class="pv">${m.inBook ? 'book' : 'best non-book move'}</span>`;
+      + `<span class="pv">${m.inBook ? 'book' : 'best non-book move'}${mu ? ` · Umigame ${mu.b} / ${mu.w}` : ''}</span>`;
     if (m.sq < 64) {
       row.onmouseenter = () => cells[m.sq].classList.add('peek');
       row.onmouseleave = () => cells[m.sq].classList.remove('peek');
@@ -285,7 +368,9 @@ $('book-file').onchange = async (e) => {
     const t = performance.now();
     book = await Book.fromFile(file);
     bookName = file.name;
-    $('book-meta').textContent = `${bookName} · ${book.n.toLocaleString()} positions · level ${book.level} · ${book.date}`;
+    $('book-meta').dataset.umi = 'Umigame numbers: computing…';
+    renderBookMeta();
+    computeUmigame(book);
     $('btn-book').textContent = 'Change…';
     console.log(`Book loaded in ${Math.round(performance.now() - t)} ms`);
   } catch (err) {
@@ -586,7 +671,7 @@ async function trainClick(sq) {
 
   // Wrong: show all scores for this position, mark the chosen square.
   T.phase = 'wrong';
-  const list = info.moves.filter((m) => m.sq < 64).map((m) => ({ sq: m.sq, score: m.score, leaf: !m.inBook }));
+  const list = bookList(st, info);
   if (!list.find((m) => m.sq === sq)) list.push({ sq, score: r.score });
   paintScores(list, false);
   cells[sq].classList.add('wrong');

@@ -13,6 +13,8 @@
 //     {i8 score, u8 move}                 (leaf: best move not in the book; move 65 = none)
 // Each position is stored once, in one of its 8 symmetric orientations.
 
+import { flipsFor } from './reversi.js';
+
 const MAGIC_EDAX = 0x45444158;
 const MAGIC_BOOK = 0x424f4f4b;
 const HEADER_SIZE = 42;
@@ -33,6 +35,39 @@ for (let s = 0; s < 8; s++) {
   SYM.push(t);
 }
 const symMove = (m, s) => (m < 64 ? SYM[s][m] : m);
+
+// Byte lookup tables for turning a current bitboard (two u32 words) into the stored
+// orientation of symmetry s: stored bit x is current bit SYM[s][x].
+// STAB[((s * 8 + byte) * 256 + value) * 2 + word]
+const STAB = new Uint32Array(8 * 8 * 256 * 2);
+for (let s = 0; s < 8; s++) {
+  const inv = new Uint8Array(64);
+  for (let x = 0; x < 64; x++) inv[SYM[s][x]] = x;
+  for (let j = 0; j < 8; j++) {
+    for (let v = 0; v < 256; v++) {
+      let lo = 0, hi = 0;
+      for (let k = 0; k < 8; k++) {
+        if (!(v & (1 << k))) continue;
+        const x = inv[j * 8 + k];
+        if (x < 32) lo |= 1 << x; else hi |= 1 << (x - 32);
+      }
+      const t = ((s * 8 + j) * 256 + v) * 2;
+      STAB[t] = lo >>> 0; STAB[t + 1] = hi >>> 0;
+    }
+  }
+}
+let W0 = 0, W1 = 0; // result of symWords
+function symWords(w0, w1, s) {
+  let lo = 0, hi = 0;
+  const base = s * 8 * 256 * 2;
+  for (let j = 0; j < 4; j++) {
+    const a = base + (j * 256 + ((w0 >>> (8 * j)) & 255)) * 2;
+    const b = base + ((j + 4) * 256 + ((w1 >>> (8 * j)) & 255)) * 2;
+    lo |= STAB[a] | STAB[b];
+    hi |= STAB[a + 1] | STAB[b + 1];
+  }
+  W0 = lo >>> 0; W1 = hi >>> 0;
+}
 
 function hash4(a, b, c, d) {
   let h = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b);
@@ -111,20 +146,136 @@ export class Book {
   // Scores are from the side to move. moves are sorted best first; the leaf (best
   // non-book move) is included with inBook = false.
   probe(board, toMove) {
+    const hit = this.find(board, toMove);
+    return hit ? this.decode(hit.index, hit.symmetry) : null;
+  }
+
+  // Record index and symmetry of a position, or null if it is not in the book.
+  find(board, toMove) {
+    let p0 = 0, p1 = 0, o0 = 0, o1 = 0;
+    for (let y = 0; y < 64; y++) {
+      const v = board[y];
+      if (!v) continue;
+      if (v === toMove) { if (y < 32) p0 |= 1 << y; else p1 |= 1 << (y - 32); }
+      else { if (y < 32) o0 |= 1 << y; else o1 |= 1 << (y - 32); }
+    }
     for (let s = 0; s < 8; s++) {
-      // Stored board B satisfies symmetry(B, s) == current, so B[x] = current[SYM[s][x]].
-      const t = SYM[s];
-      let p0 = 0, p1 = 0, o0 = 0, o1 = 0;
-      for (let x = 0; x < 64; x++) {
-        const v = board[t[x]];
-        if (!v) continue;
-        if (v === toMove) { if (x < 32) p0 |= 1 << x; else p1 |= 1 << (x - 32); }
-        else { if (x < 32) o0 |= 1 << x; else o1 |= 1 << (x - 32); }
-      }
-      const i = this.findWords(p0 >>> 0, p1 >>> 0, o0 >>> 0, o1 >>> 0);
-      if (i >= 0) return this.decode(i, s);
+      // Stored board B satisfies symmetry(B, s) == current; STAB maps current bits to B's bits.
+      symWords(p0, p1, s); const q0 = W0, q1 = W1;
+      symWords(o0, o1, s);
+      const i = this.findWords(q0, q1, W0, W1);
+      if (i >= 0) return { index: i, symmetry: s };
     }
     return null;
+  }
+
+  // ---------- Umigame numbers ----------
+  // For each position: how many lines each side must memorise to always play a best book move,
+  // when the other side may play any of its best moves.
+  //   no book moves (or not in the book): 1 and 1
+  //   otherwise, over the book moves with the best score: the mover's number is the minimum of
+  //   the mover's numbers after those moves; the other side's number is the sum of theirs.
+  // Stored per record as [side to move, other side]; -1 = not computed yet. Counts can get
+  // large, so they are kept as doubles. Everything is computed once, in slices (umigameStep).
+
+  umigameInit() {
+    if (this.umi) return;
+    this.umi = new Float64Array(this.n * 2).fill(-1);
+    this.umiKids = new Map();  // record -> children list while it waits for them
+    this.umiStack = [];
+    this.umiNext = 0;          // next record for the background scan
+    this.umiDone = 0;          // records computed
+  }
+
+  // Use numbers computed elsewhere (the worker) for this same book.
+  umigameSet(umi) {
+    this.umi = umi;
+    this.umiKids = new Map();
+    this.umiStack = [];
+    this.umiNext = this.n;
+    this.umiDone = this.n;
+  }
+
+  // [side to move, other side] for record i, or null if not computed yet.
+  umigameOf(i) {
+    if (!this.umi || this.umi[2 * i] < 0) return null;
+    return [this.umi[2 * i], this.umi[2 * i + 1]];
+  }
+
+  // Children of record i through its best book moves: [childIndex or -1, sameSideToMove].
+  umigameChildren(i) {
+    const dv = this.dv, o = this.offsets[i], nLink = dv.getUint8(o + 38);
+    const kids = [];
+    if (!nLink) return kids;
+    let best = -Infinity;
+    for (let k = 0; k < nLink; k++) best = Math.max(best, dv.getInt8(o + 40 + 2 * k));
+    const board = this.recordBoard(i); // side to move is 1
+    for (let k = 0; k < nLink; k++) {
+      if (dv.getInt8(o + 40 + 2 * k) !== best) continue;
+      const move = dv.getUint8(o + 40 + 2 * k + 1);
+      const b = board.slice();
+      if (move < 64) {
+        for (const f of flipsFor(b, move, 1)) b[f] = 1;
+        b[move] = 1;
+      }
+      let hit = this.find(b, 2);             // normally the other side is to move
+      if (hit) { kids.push([hit.index, false]); continue; }
+      hit = this.find(b, 1);                 // some pass positions are stored with the passer to move
+      kids.push(hit ? [hit.index, true] : [-1, false]);
+    }
+    return kids;
+  }
+
+  // Work through the stack until it is empty or the deadline passes. Returns true when empty.
+  umigameRun(stack, deadline) {
+    const U = this.umi, kidsOf = this.umiKids;
+    let n = 0;
+    while (stack.length) {
+      if ((++n & 255) === 0 && performance.now() > deadline) return false;
+      const i = stack[stack.length - 1];
+      if (U[2 * i] >= 0) { stack.pop(); continue; }
+      let kids = kidsOf.get(i);
+      if (!kids) { kids = this.umigameChildren(i); kidsOf.set(i, kids); }
+      let pending = false;
+      for (const [c] of kids) if (c >= 0 && U[2 * c] < 0) { stack.push(c); pending = true; }
+      if (pending) continue;
+      let mine = 1, theirs = 1;
+      if (kids.length) {
+        mine = Infinity; theirs = 0;
+        for (const [c, same] of kids) {
+          const a = c < 0 ? 1 : same ? U[2 * c] : U[2 * c + 1];     // mover's number after the move
+          const b = c < 0 ? 1 : same ? U[2 * c + 1] : U[2 * c];     // other side's number
+          mine = Math.min(mine, a);
+          theirs += b;
+        }
+      }
+      U[2 * i] = mine; U[2 * i + 1] = theirs;
+      kidsOf.delete(i);
+      this.umiDone++;
+      stack.pop();
+    }
+    return true;
+  }
+
+  // Compute for up to `ms` milliseconds. Returns the fraction of records done (1 = finished).
+  umigameStep(ms) {
+    this.umigameInit();
+    const deadline = performance.now() + ms;
+    for (;;) {
+      if (!this.umiStack.length) {
+        while (this.umiNext < this.n && this.umi[2 * this.umiNext] >= 0) this.umiNext++;
+        if (this.umiNext >= this.n) return 1;
+        this.umiStack.push(this.umiNext);
+      }
+      if (!this.umigameRun(this.umiStack, deadline)) return this.umiDone / this.n;
+    }
+  }
+
+  // Synchronous: [side to move, other side] for record i (computes what is missing).
+  umigame(i) {
+    this.umigameInit();
+    if (this.umi[2 * i] < 0) this.umigameRun([i], Infinity);
+    return [this.umi[2 * i], this.umi[2 * i + 1]];
   }
 
   decode(i, s = 0) {
