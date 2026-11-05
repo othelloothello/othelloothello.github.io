@@ -191,9 +191,11 @@ function paintScores(list, partial) {
       + (m.leaf ? ' leaf' : '') + (partial ? ' partial' : '');
     el.textContent = fmtScore(m.score);
     if (m.umi) {
-      // Umigame numbers of the position after this move: Black's (dark) and White's (light).
+      // Umigame numbers of the position after this move: Black's (dark) and White's (light),
+      // the side to move first.
+      const ub = `<span class="ub">${fmtCount(m.umi.b)}</span>`, uw = `<span class="uw">${fmtCount(m.umi.w)}</span>`;
       el.innerHTML = `<span class="v">${fmtScore(m.score)}</span>`
-        + `<span class="umi"><span class="ub">${fmtCount(m.umi.b)}</span><span class="uw">${fmtCount(m.umi.w)}</span></span>`;
+        + `<span class="umi">${cur().toMove === WHITE ? uw + ub : ub + uw}</span>`;
       el.title = `Umigame: Black ${m.umi.b}, White ${m.umi.w}`;
     }
     cells[m.sq].appendChild(el);
