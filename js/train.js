@@ -44,6 +44,13 @@ export class Repetition {
     return { total: all.length, due: all.filter((it) => it.due <= Date.now()).length };
   }
 
+  // Raw item access, used to undo a record (e.g. when a move is accepted after all).
+  get(key) { return this.items[key] ? { ...this.items[key] } : undefined; }
+  put(key, item) {
+    if (item) this.items[key] = { ...item }; else delete this.items[key];
+    this.save();
+  }
+
   clear() { this.items = {}; this.save(); }
 }
 

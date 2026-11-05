@@ -365,7 +365,7 @@ function setFeedback(html, kind = '') {
 }
 
 function showButtons(...ids) {
-  for (const id of ['btn-train-start', 'btn-train-retry', 'btn-train-best', 'btn-train-next', 'btn-train-copy']) $(id).hidden = !ids.includes(id);
+  for (const id of ['btn-train-start', 'btn-train-retry', 'btn-train-accept', 'btn-train-best', 'btn-train-next', 'btn-train-copy']) $(id).hidden = !ids.includes(id);
 }
 
 function renderTrainStats() {
@@ -439,7 +439,7 @@ function renderExplore() {
   el.textContent = atAnchor()
     ? 'Click any move to play on from here. Use ◀ ▶ or the arrow keys to step through the moves.'
     : 'Playing on from the trained position.'
-      + (T.phase === 'wrong' ? ' Retry and Play best & continue go back to it.' : '');
+      + (T.phase === 'wrong' ? ' Retry, Accept and Play best & continue go back to it.' : '');
 }
 
 function startLine() {
@@ -565,6 +565,7 @@ async function trainClick(sq) {
   const best = bestScore(info);
   const correct = r.score >= best;
   const key = book.recordKey(info.index);
+  const undo = T.retrying ? null : { key, prev: srs.get(key) }; // lets Accept revert this record
   if (!T.retrying) {
     srs.record(key, lineSoFar(), T.lineColor, correct);
     T.line.total++; T.session.total++;
@@ -592,11 +593,12 @@ async function trainClick(sq) {
   const bestMoves = info.moves.filter((m) => m.sq < 64 && m.score === best);
   for (const m of bestMoves) cells[m.sq].classList.add('right');
   setAnchor({ list, wrong: sq, right: bestMoves.map((m) => m.sq) });
+  T.anchor.undo = undo;
   renderExplore();
   setFeedback(`<b>${sqName(sq)} ${fmtScore(r.score)}</b> loses ${best - r.score} disc${best - r.score === 1 ? '' : 's'}.`
     + ` Best: <b>${bestMoves.map((m) => sqName(m.sq) + ' ' + fmtScore(m.score)).join(', ')}</b>`
     + `<span class="sub">Score source: ${r.source}. This position is saved for review.</span>`, 'bad');
-  showButtons('btn-train-retry', 'btn-train-best', 'btn-train-next', 'btn-train-copy');
+  showButtons('btn-train-retry', 'btn-train-accept', 'btn-train-best', 'btn-train-next', 'btn-train-copy');
 }
 
 $('tab-analyse').onclick = () => setMode('analyse');
@@ -622,6 +624,26 @@ $('btn-train-retry').onclick = () => {
   renderExplore();
   setFeedback('Try again: find the best move.');
   showButtons('btn-train-next');
+};
+// Accept: treat the move as correct after all, undo the review entry and continue the line with it.
+$('btn-train-accept').onclick = () => {
+  if (T.phase !== 'wrong' || !T.anchor || !T.anchor.marks) return;
+  const { wrong: sq } = T.anchor.marks;
+  const undo = T.anchor.undo;
+  restoreAnchor();
+  clearMarks();
+  if (undo) {
+    // Undo the miss, then record it as a correct answer (moves a due review up a box).
+    srs.put(undo.key, undo.prev);
+    srs.record(undo.key, lineSoFar(), T.lineColor, true);
+    T.line.correct++; T.session.correct++;
+  }
+  renderTrainStats();
+  T.retrying = false;
+  T.phase = 'trainer';
+  setFeedback(`<b>${sqName(sq)}</b>: accepted.<span class="sub">Not saved for review.</span>`, 'good');
+  pushMove(sq);
+  T.timer = setTimeout(trainerTurn, 650);
 };
 $('btn-train-best').onclick = () => {
   restoreAnchor();
