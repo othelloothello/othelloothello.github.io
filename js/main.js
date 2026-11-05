@@ -357,7 +357,7 @@ function setFeedback(html, kind = '') {
 }
 
 function showButtons(...ids) {
-  for (const id of ['btn-train-start', 'btn-train-retry', 'btn-train-best', 'btn-train-next']) $(id).hidden = !ids.includes(id);
+  for (const id of ['btn-train-start', 'btn-train-retry', 'btn-train-best', 'btn-train-next', 'btn-train-copy']) $(id).hidden = !ids.includes(id);
 }
 
 function renderTrainStats() {
@@ -442,7 +442,7 @@ function endLine(reason) {
   T.phase = 'end';
   const l = T.line;
   setFeedback(`${reason}<span class="sub">This line: ${l.correct}/${l.total} correct.</span>`, 'end');
-  showButtons('btn-train-next');
+  showButtons('btn-train-next', 'btn-train-copy');
   renderTrainStats();
 }
 
@@ -548,6 +548,13 @@ $('opt-train-color').onchange = (e) => { T.colorPref = Number(e.target.value); s
 $('opt-train-margin').onchange = (e) => { T.margin = Number(e.target.value); store.set('trainMargin', T.margin); };
 $('btn-train-start').onclick = startLine;
 $('btn-train-next').onclick = startLine;
+$('btn-train-copy').onclick = async () => {
+  const text = `${lineSoFar()} ${colorName(T.lineColor).toLowerCase()}`;
+  const btn = $('btn-train-copy');
+  try { await navigator.clipboard.writeText(text); btn.textContent = 'Copied'; }
+  catch { btn.textContent = 'Copy failed'; }
+  setTimeout(() => { btn.textContent = 'Copy transcript with colour'; }, 1500);
+};
 $('btn-train-retry').onclick = () => {
   clearMarks();
   T.retrying = true;
