@@ -438,10 +438,24 @@ function startLine() {
 // A book leaf (in the book, no book moves) is still quizzed on its stored best move; the line ends after it.
 const OUT_OF_BOOK = 'Out of book.';
 
+// Score of the last move on the line that has a book score, from the trained colour's side.
+function lastBookScore() {
+  for (let i = cursor; i >= 1; i--) {
+    const prev = states[i - 1], info = probe(prev);
+    const entry = info && info.moves.find((m) => m.sq === states[i].move);
+    if (entry) return { score: prev.toMove === T.lineColor ? entry.score : -entry.score, ply: i, move: sqName(states[i].move) };
+  }
+  return null;
+}
+
 function endLine(reason) {
   T.phase = 'end';
   const l = T.line;
-  setFeedback(`${reason}<span class="sub">This line: ${l.correct}/${l.total} correct.</span>`, 'end');
+  const last = reason === OUT_OF_BOOK ? lastBookScore() : null;
+  const lastHtml = last
+    ? `<br>Last book score: <b>${fmtScore(last.score)}</b> for you (${colorName(T.lineColor)}), after ${last.ply}.${last.move}.`
+    : '';
+  setFeedback(`${reason}${lastHtml}<span class="sub">This line: ${l.correct}/${l.total} correct.</span>`, 'end');
   showButtons('btn-train-next', 'btn-train-copy');
   renderTrainStats();
 }
