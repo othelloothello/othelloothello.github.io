@@ -628,7 +628,7 @@ function lastBookScore() {
 
 // Result of the user's previous move, kept on screen until the next answer.
 function lastHtml() {
-  return T.last ? `<span class="last">${T.last}</span>` : '';
+  return T.last ? `<span class="last${T.lastWarn ? ' warn' : ''}">${T.last}</span>` : '';
 }
 
 function endLine(reason) {
@@ -700,6 +700,26 @@ async function moveScore(st, info, sq) {
   };
 }
 
+// After a correct move `sq` in position `st`: text naming the other best moves that need fewer
+// lines to memorise (lower Umigame number for the mover, or equal and higher for the opponent),
+// or '' if there are none or the numbers are not computed yet.
+function umigameWarning(st, info, sq, best) {
+  if (!book || !book.umigameReady()) return '';
+  const mineOf = (u) => (st.toMove === BLACK ? u.b : u.w);
+  const theirsOf = (u) => (st.toMove === BLACK ? u.w : u.b);
+  const entry = info.moves.find((m) => m.sq === sq);
+  const own = entry ? umiMove(st, entry) : { b: 1, w: 1 }; // a move outside the book ends its line
+  if (!own) return '';
+  const better = info.moves
+    .filter((m) => m.sq < 64 && m.sq !== sq && m.score === best)
+    .map((m) => ({ m, u: umiMove(st, m) }))
+    .filter(({ u }) => u && (mineOf(u) < mineOf(own) || (mineOf(u) === mineOf(own) && theirsOf(u) > theirsOf(own))))
+    .sort((a, b) => mineOf(a.u) - mineOf(b.u) || theirsOf(b.u) - theirsOf(a.u));
+  if (!better.length) return '';
+  const fmt = (u) => `${fmtCount(mineOf(u))} · ${fmtCount(theirsOf(u))}`;
+  return `Umigame ${fmt(own)}; better Umigame: ${better.map(({ m, u }) => `<b>${sqName(m.sq)}</b> ${fmt(u)}`).join(', ')}.`;
+}
+
 async function trainClick(sq) {
   if (T.phase !== 'user') return;
   const st = cur();
@@ -725,10 +745,14 @@ async function trainClick(sq) {
   if (correct) {
     T.retrying = false;
     const others = info.moves.filter((m) => m.sq < 64 && m.score === best && m.sq !== sq).map((m) => sqName(m.sq));
-    T.last = `<b>${cursor + 1}.${sqName(sq)} ${fmtScore(r.score)}</b>: correct.`
-      + (others.length ? ` Also best: ${others.join(', ')}` : '');
-    setFeedback(`<b>${sqName(sq)} ${fmtScore(r.score)}</b>: correct.`
-      + (others.length ? `<span class="sub">Also best: ${others.join(', ')}</span>` : ''), 'good');
+    const warn = umigameWarning(st, info, sq, best);
+    const verdict = warn ? 'correct with warning' : 'correct';
+    T.lastWarn = !!warn;
+    T.last = `<b>${cursor + 1}.${sqName(sq)} ${fmtScore(r.score)}</b>: ${verdict}.`
+      + (warn ? ` ${warn}` : others.length ? ` Also best: ${others.join(', ')}` : '');
+    setFeedback(`<b>${sqName(sq)} ${fmtScore(r.score)}</b>: ${verdict}.`
+      + (warn ? `<span class="sub">${warn}</span>`
+        : others.length ? `<span class="sub">Also best: ${others.join(', ')}</span>` : ''), warn ? 'warn' : 'good');
     pushMove(sq);
     T.phase = 'trainer';
     T.timer = setTimeout(trainerTurn, 650);
@@ -797,6 +821,7 @@ $('btn-train-accept').onclick = () => {
   T.phase = 'trainer';
   setFeedback(`<b>${sqName(sq)}</b>: accepted.<span class="sub">Not saved for review.</span>`, 'good');
   T.last = `<b>${cursor + 1}.${sqName(sq)}</b>: accepted (not saved for review).`;
+  T.lastWarn = false;
   pushMove(sq);
   T.timer = setTimeout(trainerTurn, 650);
 };
@@ -810,6 +835,7 @@ $('btn-train-best').onclick = () => {
   T.retrying = false;
   T.phase = 'trainer';
   T.last = `<b>${cursor + 1}.${sqName(pick.sq)} ${fmtScore(pick.score)}</b>: best move played.`;
+  T.lastWarn = false;
   pushMove(pick.sq);
   T.timer = setTimeout(trainerTurn, 450);
 };
