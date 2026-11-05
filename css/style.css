@@ -298,6 +298,9 @@ textarea:focus { outline: none; border-color: var(--accent); }
 .cell .score.leaf::after { content: "*"; font-size: 60%; margin-left: 1px; }
 /* Score with Umigame numbers below it: Black's dark, White's light. */
 .cell .score:has(.umi) { flex-direction: column; gap: 1px; }
+.cell .score.leaf:has(.umi)::after { content: none; }
+.cell .score.leaf .v::after { content: "*"; font-size: 60%; margin-left: 1px; }
+.cell .score.leaf .umi { font-style: normal; }
 .cell .score .umi {
   display: flex; gap: 6px;
   font-size: calc(var(--board) * 0.019); font-weight: 700;

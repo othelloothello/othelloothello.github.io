@@ -170,11 +170,12 @@ export class Book {
   }
 
   // ---------- Umigame numbers ----------
-  // For each position: how many lines each side must memorise to always play a best book move,
+  // For each position: how many lines each side must memorise to always play a best move,
   // when the other side may play any of its best moves.
   //   no book moves (or not in the book): 1 and 1
-  //   otherwise, over the book moves with the best score: the mover's number is the minimum of
-  //   the mover's numbers after those moves; the other side's number is the sum of theirs.
+  //   otherwise, over the moves with the best score (book moves, plus the stored best non-book
+  //   move, which counts as 1 and 1): the mover's number is the minimum of the mover's numbers
+  //   after those moves; the other side's number is the sum of theirs.
   // Stored per record as [side to move, other side]; -1 = not computed yet. Counts can get
   // large, so they are kept as doubles. Everything is computed once, in slices (umigameStep).
 
@@ -196,19 +197,29 @@ export class Book {
     this.umiDone = this.n;
   }
 
+  umigameReady() { return !!this.umi && this.umiDone >= this.n; }
+
   // [side to move, other side] for record i, or null if not computed yet.
   umigameOf(i) {
     if (!this.umi || this.umi[2 * i] < 0) return null;
     return [this.umi[2 * i], this.umi[2 * i + 1]];
   }
 
-  // Children of record i through its best book moves: [childIndex or -1, sameSideToMove].
+  // Children of record i through its best moves: [childIndex or -1, sameSideToMove].
+  // As in KifuBox, the stored best non-book move (leaf) counts too when it ties for the best
+  // score; its line ends there (-1 = counts as 1 and 1).
   umigameChildren(i) {
     const dv = this.dv, o = this.offsets[i], nLink = dv.getUint8(o + 38);
     const kids = [];
     if (!nLink) return kids;
     let best = -Infinity;
     for (let k = 0; k < nLink; k++) best = Math.max(best, dv.getInt8(o + 40 + 2 * k));
+    const lo = o + 40 + 2 * nLink;
+    if (dv.getUint8(lo + 1) !== NOMOVE) {
+      const leafScore = dv.getInt8(lo);
+      if (leafScore > best) return [[-1, false]]; // the leaf alone is best
+      if (leafScore === best) kids.push([-1, false]);
+    }
     const board = this.recordBoard(i); // side to move is 1
     for (let k = 0; k < nLink; k++) {
       if (dv.getInt8(o + 40 + 2 * k) !== best) continue;

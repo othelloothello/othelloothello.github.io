@@ -271,10 +271,16 @@ function umiAfter(st, sq) {
   return child ? umiOf(child) : null;
 }
 
-// Book moves of `info` (position `st`) for painting; book moves carry their Umigame numbers.
+// Umigame numbers after book move m; the stored best non-book move always ends its line (1 and 1).
+function umiMove(st, m) {
+  if (!m.inBook) return book && book.umigameReady() ? { b: 1, w: 1 } : null; // shown once computed
+  return umiAfter(st, m.sq);
+}
+
+// Book moves of `info` (position `st`) for painting, with their Umigame numbers.
 function bookList(st, info) {
   return info.moves.filter((m) => m.sq < 64)
-    .map((m) => ({ sq: m.sq, score: m.score, leaf: !m.inBook, umi: m.inBook ? umiAfter(st, m.sq) : null }));
+    .map((m) => ({ sq: m.sq, score: m.score, leaf: !m.inBook, umi: umiMove(st, m) }));
 }
 
 function paintBoard() {
@@ -347,7 +353,7 @@ function updateBook() {
     const row = document.createElement('div');
     row.className = 'eline' + (m.score === best ? ' best' : '');
     const name = m.sq === 64 ? 'pass' : sqName(m.sq);
-    const mu = m.inBook && m.sq < 64 ? umiAfter(st, m.sq) : null;
+    const mu = m.sq < 64 ? umiMove(st, m) : null;
     row.innerHTML = `<span class="m">${name}</span><span class="s">${fmtScore(m.score)}</span>`
       + `<span class="pv">${m.inBook ? 'book' : 'best non-book move'}${mu ? ` · Umigame ${mu.b} / ${mu.w}` : ''}</span>`;
     if (m.sq < 64) {
