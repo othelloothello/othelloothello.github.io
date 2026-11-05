@@ -524,6 +524,7 @@ function setMode(m) {
   clearTimeout(T.timer);
   T.phase = 'idle';
   T.anchor = null;
+  T.last = null;
   clearMarks();
   if (m === 'train') {
     if (engine) engine.cancel();
@@ -582,6 +583,7 @@ function startLine() {
   clearTimeout(T.timer);
   T.phase = 'idle';
   T.anchor = null;
+  T.last = null;
   clearMarks();
   if (!book) { setFeedback('Open your book first.', 'bad'); return; }
   T.line = { correct: 0, total: 0 };
@@ -624,14 +626,19 @@ function lastBookScore() {
   return null;
 }
 
+// Result of the user's previous move, kept on screen until the next answer.
+function lastHtml() {
+  return T.last ? `<span class="last">${T.last}</span>` : '';
+}
+
 function endLine(reason) {
   T.phase = 'end';
   const l = T.line;
   const last = reason === OUT_OF_BOOK ? lastBookScore() : null;
-  const lastHtml = last
+  const lastBook = last
     ? `<br>Last book score: <b>${fmtScore(last.score)}</b> for you (${colorName(T.lineColor)}), after ${last.ply}.${last.move}.`
     : '';
-  setFeedback(`${reason}${lastHtml}<span class="sub">This line: ${l.correct}/${l.total} correct.</span>`, 'end');
+  setFeedback(`${lastHtml()}${reason}${lastBook}<span class="sub">This line: ${l.correct}/${l.total} correct.</span>`, 'end');
   showButtons('btn-train-next', 'btn-train-copy');
   renderTrainStats();
   setAnchor();
@@ -652,7 +659,7 @@ function userTurn(intro = '') {
     return;
   }
   T.phase = 'user';
-  setFeedback(`${intro ? intro + '<br>' : ''}Your move as <b>${colorName(T.lineColor)}</b>: find the best move.`);
+  setFeedback(lastHtml() + `${intro ? intro + '<br>' : ''}Your move as <b>${colorName(T.lineColor)}</b>: find the best move.`);
   showButtons('btn-train-next');
 }
 
@@ -718,6 +725,8 @@ async function trainClick(sq) {
   if (correct) {
     T.retrying = false;
     const others = info.moves.filter((m) => m.sq < 64 && m.score === best && m.sq !== sq).map((m) => sqName(m.sq));
+    T.last = `<b>${cursor + 1}.${sqName(sq)} ${fmtScore(r.score)}</b>: correct.`
+      + (others.length ? ` Also best: ${others.join(', ')}` : '');
     setFeedback(`<b>${sqName(sq)} ${fmtScore(r.score)}</b>: correct.`
       + (others.length ? `<span class="sub">Also best: ${others.join(', ')}</span>` : ''), 'good');
     pushMove(sq);
@@ -728,6 +737,7 @@ async function trainClick(sq) {
 
   // Wrong: show all scores for this position, mark the chosen square.
   T.phase = 'wrong';
+  T.last = null;
   const list = bookList(st, info);
   if (!list.find((m) => m.sq === sq)) list.push({ sq, score: r.score });
   paintScores(list, false);
@@ -786,6 +796,7 @@ $('btn-train-accept').onclick = () => {
   T.retrying = false;
   T.phase = 'trainer';
   setFeedback(`<b>${sqName(sq)}</b>: accepted.<span class="sub">Not saved for review.</span>`, 'good');
+  T.last = `<b>${cursor + 1}.${sqName(sq)}</b>: accepted (not saved for review).`;
   pushMove(sq);
   T.timer = setTimeout(trainerTurn, 650);
 };
@@ -798,6 +809,7 @@ $('btn-train-best').onclick = () => {
   const pick = info.moves.find((m) => m.sq < 64 && m.inBook && m.score === best) || info.moves.find((m) => m.sq < 64 && m.score === best);
   T.retrying = false;
   T.phase = 'trainer';
+  T.last = `<b>${cursor + 1}.${sqName(pick.sq)} ${fmtScore(pick.score)}</b>: best move played.`;
   pushMove(pick.sq);
   T.timer = setTimeout(trainerTurn, 450);
 };
