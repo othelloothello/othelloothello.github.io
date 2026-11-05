@@ -551,7 +551,7 @@ async function trainClick(sq) {
   setFeedback(`<b>${sqName(sq)} ${fmtScore(r.score)}</b> loses ${best - r.score} disc${best - r.score === 1 ? '' : 's'}.`
     + ` Best: <b>${bestMoves.map((m) => sqName(m.sq) + ' ' + fmtScore(m.score)).join(', ')}</b>`
     + `<span class="sub">Score source: ${r.source}. This position is saved for review.</span>`, 'bad');
-  showButtons('btn-train-retry', 'btn-train-best', 'btn-train-next');
+  showButtons('btn-train-retry', 'btn-train-best', 'btn-train-next', 'btn-train-copy');
 }
 
 $('tab-analyse').onclick = () => setMode('analyse');
