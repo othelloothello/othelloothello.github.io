@@ -1,1 +1,1 @@
-# reversitrainer.github.io
+# reversireversi.github.io
