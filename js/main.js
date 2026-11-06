@@ -5,6 +5,7 @@ import {
 import { Engine, toEdaxBoard } from './engine.js';
 import { Book } from './book.js';
 import { Repetition, opponentCandidates, pickRandom } from './train.js';
+import { dbGet, dbPut, dbDelete, askPersist } from './device-store.js';
 
 // ---------- Settings (per browser) ----------
 const store = {
@@ -290,6 +291,10 @@ function computeUmigame(b) {
 }
 function umigameReady(b) {
   if (book !== b) return;
+  if (!b.umiSaved && bookRemembered) { // keep the numbers for next time
+    b.umiSaved = true;
+    dbPut('umi', { id: b.id, data: b.umi.buffer });
+  }
   delete $('book-meta').dataset.umi;
   renderBookMeta();
   if (T.phase === 'wrong' && T.anchor && T.anchor.marks) { // add the numbers to the mistake view
@@ -407,30 +412,94 @@ function updateBook() {
 $('opt-book').checked = bookOn;
 $('opt-book').onchange = (e) => { bookOn = e.target.checked; store.set('bookOn', bookOn); updateBook(); paintBoard(); };
 $('btn-book').onclick = () => $('book-file').click();
+// ---------- Book kept on this device ----------
+// The opened book is saved in this browser's own storage (IndexedDB) so it opens by itself
+// next time, together with its Umigame numbers. It never leaves the device.
+let bookRemembered = false;
+const bookId = (b, name) => `${name}|${b.dv.byteLength}|${b.date}|${b.n}`;
+
+function renderRemember() {
+  $('btn-book-forget').hidden = !bookRemembered;
+  $('book-note').textContent = bookRemembered ? 'Remembered on this device; opens by itself next time.' : '';
+}
+
+// Use `buffer` (the book file) as the current book. fromDevice: it came from storage.
+async function openBook(buffer, name, fromDevice = false) {
+  const t = performance.now();
+  const b = new Book(buffer);
+  book = b;
+  bookName = name;
+  b.id = bookId(b, name);
+  $('btn-book').textContent = 'Change…';
+  $('book-meta').dataset.umi = 'Umigame numbers: computing…';
+  renderBookMeta();
+  console.log(`Book loaded in ${Math.round(performance.now() - t)} ms`);
+  updateBook();
+  paintBoard();
+  if (mode === 'train' && T.phase === 'idle') { setFeedback('Book loaded. Press <b>Start</b>.'); renderTrainStats(); }
+
+  const saved = await dbGet('umi');
+  if (book !== b) return;
+  if (saved && saved.id === b.id && saved.data && saved.data.byteLength === b.n * 16) {
+    b.umigameSet(new Float64Array(saved.data));
+    b.umiSaved = true; // already stored
+    umigameReady(b);
+  } else {
+    computeUmigame(b);
+  }
+
+  if (!fromDevice) {
+    bookRemembered = false;
+    renderRemember();
+    if (saved && saved.id !== b.id) await dbDelete('umi');
+    bookRemembered = await dbPut('book', { name, data: buffer, savedAt: Date.now() });
+    if (book !== b) return;
+    renderRemember();
+    if (bookRemembered && b.umigameReady() && !b.umiSaved) { // numbers finished before the book was saved
+      b.umiSaved = true;
+      dbPut('umi', { id: b.id, data: b.umi.buffer });
+    }
+    askPersist();
+  }
+}
+
 $('book-file').onchange = async (e) => {
   const file = e.target.files[0];
   if (!file) return;
   setBookStatus(`Reading ${file.name}…`);
   try {
-    const t = performance.now();
-    book = await Book.fromFile(file);
-    bookName = file.name;
-    $('book-meta').dataset.umi = 'Umigame numbers: computing…';
-    renderBookMeta();
-    computeUmigame(book);
-    $('btn-book').textContent = 'Change…';
-    console.log(`Book loaded in ${Math.round(performance.now() - t)} ms`);
+    await openBook(await file.arrayBuffer(), file.name);
   } catch (err) {
     book = null;
     setBookStatus('Could not read book: ' + err.message, true);
-    return;
   } finally {
     e.target.value = '';
   }
-  updateBook();
-  paintBoard();
-  if (mode === 'train' && T.phase === 'idle') { setFeedback('Book loaded. Press <b>Start</b>.'); renderTrainStats(); }
 };
+
+$('btn-book-forget').onclick = async () => {
+  await dbDelete('book');
+  await dbDelete('umi');
+  bookRemembered = false;
+  renderRemember();
+  $('book-note').textContent = 'Removed from this device. The book stays open until you reload.';
+};
+
+// On start: reopen the book saved on this device, if any.
+(async () => {
+  const saved = await dbGet('book');
+  if (!saved || !saved.data || book) return;
+  setBookStatus(`Opening ${saved.name} from this device…`);
+  try {
+    bookRemembered = true;
+    renderRemember();
+    await openBook(saved.data, saved.name, true);
+  } catch (err) {
+    bookRemembered = false;
+    renderRemember();
+    setBookStatus('Could not open the saved book: ' + err.message, true);
+  }
+})();
 
 async function requestAnalysis() {
   const token = ++anaToken;

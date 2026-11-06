@@ -316,6 +316,10 @@ textarea:focus { outline: none; border-color: var(--accent); }
 button.small { padding: 4px 10px; font-size: 12px; }
 .book-meta { font-size: 11px; color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
 .book-meta:empty { display: none; }
+.book-note { font-size: 11px; color: var(--muted); margin-top: 2px; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.book-note:has(#book-note:empty):has(#btn-book-forget[hidden]) { display: none; }
+button.link { background: none; border: none; padding: 0; color: #8fc9ff; text-decoration: underline; font-size: 11px; }
+button.link:hover:not(:disabled) { background: none; color: #b5dcff; }
 .cell.scored::before { display: none; }
 @media (hover: hover) { .cell.scored:hover { background: #17a466; } }
 .cell.peek { background: #19ad6c; }
