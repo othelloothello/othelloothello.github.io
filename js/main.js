@@ -7,6 +7,11 @@ import { Book } from './book.js';
 import { Repetition, opponentCandidates, pickRandom } from './train.js';
 import { dbGet, dbPut, dbDelete, askPersist } from './device-store.js';
 
+// Offline support and "Add to Home Screen" app (see sw.js).
+if ('serviceWorker' in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Service worker not registered:', err));
+}
+
 // ---------- Settings (per browser) ----------
 const store = {
   get(k, d) { try { const v = localStorage.getItem('ot.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
