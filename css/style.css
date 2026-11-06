@@ -242,6 +242,7 @@ button:disabled { opacity: .4; cursor: default; }
   gap: 4px;
   max-height: 220px;
   overflow-y: auto;
+  position: relative; /* offsetTop of the moves is measured from the list */
   overflow-x: hidden;
   margin-bottom: 18px;
   min-height: 34px;

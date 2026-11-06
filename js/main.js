@@ -122,8 +122,14 @@ function renderMoves() {
     d.addEventListener('click', () => goTo(i));
     el.appendChild(d);
   }
+  // Keep the current move visible inside the list only. (scrollIntoView would also scroll
+  // the page, which on a phone jumps away from the board after every move.)
   const currentEl = el.querySelector('.current');
-  if (currentEl) currentEl.scrollIntoView({ block: 'nearest' });
+  if (currentEl) {
+    const t = currentEl.offsetTop, b = t + currentEl.offsetHeight;
+    if (t < el.scrollTop) el.scrollTop = t;
+    else if (b > el.scrollTop + el.clientHeight) el.scrollTop = b - el.clientHeight;
+  }
 }
 
 const transcript = () => states.slice(1).map((s) => sqName(s.move)).join('');
