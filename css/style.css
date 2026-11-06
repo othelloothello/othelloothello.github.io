@@ -410,6 +410,7 @@ body.training.exploring .mv { cursor: pointer; }
 .mc-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-left: 6px; }
 .mc-legend i.ok, .mc-bar .ok { background: #2fbf7a; }
 .mc-legend i.no, .mc-bar .no { background: #ff6f61; }
+.mc-legend i.wa, .mc-bar .wa { background: #f0be3c; }
 .mc-tabs { margin-left: auto; display: flex; gap: 4px; }
 .mc-tabs button.active { background: rgba(255,255,255,.14); color: var(--text); }
 .mc-bars { display: grid; grid-template-columns: repeat(40, 1fr); gap: 2px; height: 70px; align-items: end; }

@@ -514,13 +514,19 @@ function renderTrainStats() {
 
 // ---------- Answers by move number (chart under the board) ----------
 const MC_MOVES = 40;
-const emptyStats = () => ({ c: new Array(61).fill(0), t: new Array(61).fill(0) });
+// c: correct (including correct with an Umigame warning), w: correct with warning, t: answers.
+const emptyStats = () => ({ c: new Array(61).fill(0), w: new Array(61).fill(0), t: new Array(61).fill(0) });
 const moveStats = { session: emptyStats(), all: store.get('moveStats', null) || emptyStats() };
+if (!moveStats.all.w) moveStats.all.w = new Array(61).fill(0); // saved before warnings were counted
 let mcView = store.get('mcView', 'session');
 
 // ply: move number of the user's answer (1..60).
-function recordMoveStat(ply, correct) {
-  for (const s of [moveStats.session, moveStats.all]) { s.t[ply]++; if (correct) s.c[ply]++; }
+function recordMoveStat(ply, correct, warned = false) {
+  for (const s of [moveStats.session, moveStats.all]) {
+    s.t[ply]++;
+    if (correct) s.c[ply]++;
+    if (correct && warned) s.w[ply]++;
+  }
   store.set('moveStats', moveStats.all);
 }
 function acceptMoveStat(ply) { // a wrong answer counted as correct after all
@@ -536,16 +542,20 @@ function renderMoveChart() {
   for (let p = 1; p <= MC_MOVES; p++) max = Math.max(max, s.t[p]);
   const bars = $('mc-bars');
   bars.innerHTML = '';
+  const seg = (cls, n) => {
+    const el = document.createElement('span');
+    el.className = cls;
+    el.style.height = `${(100 * n) / max}%`;
+    return el;
+  };
   for (let p = 1; p <= MC_MOVES; p++) {
-    const t = s.t[p], c = s.c[p];
+    const t = s.t[p], c = s.c[p], w = s.w[p];
     const bar = document.createElement('div');
     bar.className = 'mc-bar' + (t ? '' : ' empty');
-    bar.title = t ? `Move ${p}: ${c}/${t} correct (${Math.round((100 * c) / t)}%)` : `Move ${p}: no answers`;
-    if (t) {
-      const ok = document.createElement('span'); ok.className = 'ok'; ok.style.height = `${(100 * c) / max}%`;
-      const no = document.createElement('span'); no.className = 'no'; no.style.height = `${(100 * (t - c)) / max}%`;
-      bar.append(ok, no);
-    }
+    bar.title = t
+      ? `Move ${p}: ${c}/${t} correct (${Math.round((100 * c) / t)}%)` + (w ? `, ${w} with Umigame warning` : '')
+      : `Move ${p}: no answers`;
+    if (t) bar.append(seg('ok', c - w), seg('wa', w), seg('no', t - c)); // bottom to top
     bars.appendChild(bar);
   }
   const axis = $('mc-axis');
@@ -781,21 +791,24 @@ async function trainClick(sq) {
   if (!r) { T.phase = 'user'; setFeedback('Could not score that move. Try again.', 'bad'); return; }
 
   const best = bestScore(info);
-  const correct = r.score >= best;
+  // A move outside the book is never correct where the book has moves of its own
+  // (the stored best non-book move is in info.moves, so it can still be correct).
+  const offBook = !info.moves.some((m) => m.sq === sq) && info.nLink > 0;
+  const correct = !offBook && r.score >= best;
+  const warn = correct ? umigameWarning(st, info, sq, best) : '';
   const key = book.recordKey(info.index);
   const undo = T.retrying ? null : { key, prev: srs.get(key) }; // lets Accept revert this record
   if (!T.retrying) {
     srs.record(key, lineSoFar(), T.lineColor, correct);
     T.line.total++; T.session.total++;
     if (correct) { T.line.correct++; T.session.correct++; }
-    recordMoveStat(cursor + 1, correct);
+    recordMoveStat(cursor + 1, correct, !!warn);
   }
   renderTrainStats();
 
   if (correct) {
     T.retrying = false;
     const others = info.moves.filter((m) => m.sq < 64 && m.score === best && m.sq !== sq).map((m) => sqName(m.sq));
-    const warn = umigameWarning(st, info, sq, best);
     const verdict = warn ? 'correct with warning' : 'correct';
     T.lastWarn = !!warn;
     T.last = `<b>${cursor + 1}.${sqName(sq)} ${fmtScore(r.score)}</b>: ${verdict}.`
@@ -821,7 +834,9 @@ async function trainClick(sq) {
   setAnchor({ list, wrong: sq, right: bestMoves.map((m) => m.sq) });
   T.anchor.undo = undo;
   renderExplore();
-  setFeedback(`<b>${sqName(sq)} ${fmtScore(r.score)}</b> loses ${best - r.score} disc${best - r.score === 1 ? '' : 's'}.`
+  const loss = best - r.score;
+  setFeedback(`<b>${sqName(sq)} ${fmtScore(r.score)}</b> `
+    + (offBook && loss <= 0 ? 'is not a book move.' : `loses ${loss} disc${loss === 1 ? '' : 's'}${offBook ? ' (not a book move)' : ''}.`)
     + ` Best: <b>${bestMoves.map((m) => sqName(m.sq) + ' ' + fmtScore(m.score)).join(', ')}</b>`
     + `<span class="sub">Score source: ${r.source}. This position is saved for review.</span>`, 'bad');
   showButtons('btn-train-retry', 'btn-train-accept', 'btn-train-best', 'btn-train-next', 'btn-train-copy');
