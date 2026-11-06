@@ -110,13 +110,16 @@ body {
   background: rgba(0,0,0,.28);
 }
 .cell.legal.w::before { background: rgba(255,255,255,.35); }
-.cell.legal:hover::before {
-  width: 80%; height: 80%;
-  background: rgba(0,0,0,.35);
+/* Hover previews only where there is a mouse (on touch screens :hover sticks after a tap). */
+@media (hover: hover) {
+  .cell.legal:hover::before {
+    width: 80%; height: 80%;
+    background: rgba(0,0,0,.35);
+  }
+  .cell.legal.w:hover::before { background: rgba(255,255,255,.45); }
+  .hints-off .cell.legal:hover::before { display: block; }
 }
-.cell.legal.w:hover::before { background: rgba(255,255,255,.45); }
 .hints-off .cell.legal::before { display: none; }
-.hints-off .cell.legal:hover::before { display: block; }
 
 /* ---------- Discs ---------- */
 .holder {
@@ -310,10 +313,10 @@ textarea:focus { outline: none; border-color: var(--accent); }
 .cell .score .uw { color: #ffffff; text-shadow: 0 1px 1px rgba(0,0,0,.45); }
 
 button.small { padding: 4px 10px; font-size: 12px; }
-.book-meta { font-size: 11px; color: var(--muted); margin-top: 4px; word-break: break-all; }
+.book-meta { font-size: 11px; color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
 .book-meta:empty { display: none; }
 .cell.scored::before { display: none; }
-.cell.scored:hover { background: #17a466; }
+@media (hover: hover) { .cell.scored:hover { background: #17a466; } }
 .cell.peek { background: #19ad6c; }
 
 /* ---------- Edax panel ---------- */
@@ -421,8 +424,65 @@ body.training.exploring .mv { cursor: pointer; }
 .mc-bar.empty { background: rgba(255,255,255,.04); height: 2px; align-self: end; }
 .mc-axis { display: grid; grid-template-columns: repeat(40, 1fr); gap: 2px; margin-top: 3px; font-size: 10px; text-align: center; }
 
+.mc-info { margin-top: 4px; min-height: 15px; font-size: 11px; }
+
+/* No double-tap zoom on controls and the board (taps register at once). */
+button, select, .board, .mv, .mc-bars, .tab { touch-action: manipulation; }
+
 @media (max-width: 900px) {
   :root { --board: min(calc(100vw - 32px - 2 * 0.055 * (100vw - 32px)), 640px); }
   .app { flex-direction: column; align-items: center; padding: 16px; }
   .panel { width: 100%; max-width: 640px; }
+}
+
+/* ---------- Phones (portrait), e.g. iPhone 11 / 15 ---------- */
+@media (max-width: 600px) {
+  :root {
+    --pad: 18px;
+    /* full width: 100vw minus the frame rim and a small page margin */
+    --board: calc(100vw - 2 * var(--pad) - 12px - env(safe-area-inset-left) - env(safe-area-inset-right));
+  }
+  body { background-attachment: scroll; -webkit-text-size-adjust: 100%; }
+  .app {
+    gap: 10px;
+    padding: max(6px, env(safe-area-inset-top)) calc(6px + env(safe-area-inset-right))
+             calc(16px + env(safe-area-inset-bottom)) calc(6px + env(safe-area-inset-left));
+  }
+  /* board, then the panel, then the chart */
+  .board-area { display: contents; }
+  .frame { order: 1; border-radius: 10px; }
+  .panel { order: 2; padding: 12px; border-radius: 12px; backdrop-filter: none; }
+  .move-chart { order: 3; margin-top: 0; }
+  .coords { font-size: 11px; }
+
+  h1 { display: none; }
+  .tabs { margin-bottom: 10px; }
+  .tab { padding: 9px; }
+  .score { margin-bottom: 10px; gap: 6px; }
+  .count { font-size: 20px; }
+  .side { padding: 4px 8px; }
+
+  /* Train: feedback and buttons first, settings below them */
+  .train { display: flex; flex-direction: column; }
+  .train-setup { order: 5; margin: 6px 0 0; gap: 8px 14px; }
+  .feedback { min-height: 0; padding: 10px 12px; font-size: 14px; }
+  button { padding: 10px 14px; }
+  button.small { padding: 6px 10px; }
+  .nav button { padding: 10px 0; }
+  select { font-size: 16px; padding: 4px 6px; } /* 16px stops iOS zooming into the menu */
+  textarea { font-size: 16px; }
+
+  /* scores and Umigame numbers on ~45 px squares */
+  .cell .score { font-size: 13px; }
+  .cell .score:has(.umi) { gap: 0; }
+  .cell .score .umi { font-size: 10px; gap: 4px; line-height: 1.1; }
+
+  .moves { grid-template-columns: repeat(4, minmax(0, 1fr)); max-height: 180px; }
+  .mv { font-size: 13px; padding: 6px; }
+
+  .move-chart { padding: 8px 10px 6px; }
+  .mc-head { flex-wrap: wrap; gap: 6px 10px; }
+  .mc-legend { font-size: 11px; }
+  .mc-bars { height: 56px; gap: 1px; }
+  .mc-axis { gap: 1px; font-size: 9px; }
 }

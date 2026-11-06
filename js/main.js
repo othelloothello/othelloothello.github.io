@@ -556,6 +556,8 @@ function renderMoveChart() {
       ? `Move ${p}: ${c}/${t} correct (${Math.round((100 * c) / t)}%)` + (w ? `, ${w} with Umigame warning` : '')
       : `Move ${p}: no answers`;
     if (t) bar.append(seg('ok', c - w), seg('wa', w), seg('no', t - c)); // bottom to top
+    // Tooltips need a mouse; show the numbers below the chart on tap or hover too.
+    bar.onclick = bar.onmouseenter = () => { $('mc-info').textContent = bar.title; };
     bars.appendChild(bar);
   }
   const axis = $('mc-axis');
@@ -633,7 +635,9 @@ function renderExplore() {
   const el = $('train-explore');
   if (!on) { el.textContent = ''; return; }
   el.textContent = atAnchor()
-    ? 'Click any move to play on from here. Use ◀ ▶ or the arrow keys to step through the moves.'
+    ? (matchMedia('(pointer: coarse)').matches
+      ? 'Tap any move to play on from here. Use ◀ ▶ to step through the moves.'
+      : 'Click any move to play on from here. Use ◀ ▶ or the arrow keys to step through the moves.')
     : 'Playing on from the trained position.'
       + (T.phase === 'wrong' ? ' Retry, Accept and Play best & continue go back to it.' : '');
 }
