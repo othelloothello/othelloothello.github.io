@@ -509,7 +509,56 @@ function renderTrainStats() {
   const s = T.session;
   $('train-stats').textContent = `Session: ${s.correct}/${s.total} correct`
     + ` · Reviews due: ${c.due} · Saved positions: ${c.total}`;
+  renderMoveChart();
 }
+
+// ---------- Answers by move number (chart under the board) ----------
+const MC_MOVES = 40;
+const emptyStats = () => ({ c: new Array(61).fill(0), t: new Array(61).fill(0) });
+const moveStats = { session: emptyStats(), all: store.get('moveStats', null) || emptyStats() };
+let mcView = store.get('mcView', 'session');
+
+// ply: move number of the user's answer (1..60).
+function recordMoveStat(ply, correct) {
+  for (const s of [moveStats.session, moveStats.all]) { s.t[ply]++; if (correct) s.c[ply]++; }
+  store.set('moveStats', moveStats.all);
+}
+function acceptMoveStat(ply) { // a wrong answer counted as correct after all
+  for (const s of [moveStats.session, moveStats.all]) if (s.c[ply] < s.t[ply]) s.c[ply]++;
+  store.set('moveStats', moveStats.all);
+}
+
+function renderMoveChart() {
+  const s = moveStats[mcView];
+  $('mc-session').classList.toggle('active', mcView === 'session');
+  $('mc-all').classList.toggle('active', mcView === 'all');
+  let max = 1;
+  for (let p = 1; p <= MC_MOVES; p++) max = Math.max(max, s.t[p]);
+  const bars = $('mc-bars');
+  bars.innerHTML = '';
+  for (let p = 1; p <= MC_MOVES; p++) {
+    const t = s.t[p], c = s.c[p];
+    const bar = document.createElement('div');
+    bar.className = 'mc-bar' + (t ? '' : ' empty');
+    bar.title = t ? `Move ${p}: ${c}/${t} correct (${Math.round((100 * c) / t)}%)` : `Move ${p}: no answers`;
+    if (t) {
+      const ok = document.createElement('span'); ok.className = 'ok'; ok.style.height = `${(100 * c) / max}%`;
+      const no = document.createElement('span'); no.className = 'no'; no.style.height = `${(100 * (t - c)) / max}%`;
+      bar.append(ok, no);
+    }
+    bars.appendChild(bar);
+  }
+  const axis = $('mc-axis');
+  if (!axis.childElementCount) {
+    for (let p = 1; p <= MC_MOVES; p++) {
+      const l = document.createElement('span');
+      l.textContent = p === 1 || p % 5 === 0 ? String(p) : '';
+      axis.appendChild(l);
+    }
+  }
+}
+$('mc-session').onclick = () => { mcView = 'session'; store.set('mcView', mcView); renderMoveChart(); };
+$('mc-all').onclick = () => { mcView = 'all'; store.set('mcView', mcView); renderMoveChart(); };
 
 function clearMarks() {
   for (const c of cells) c.classList.remove('wrong', 'right');
@@ -739,6 +788,7 @@ async function trainClick(sq) {
     srs.record(key, lineSoFar(), T.lineColor, correct);
     T.line.total++; T.session.total++;
     if (correct) { T.line.correct++; T.session.correct++; }
+    recordMoveStat(cursor + 1, correct);
   }
   renderTrainStats();
 
@@ -795,6 +845,7 @@ $('btn-train-copy').onclick = async () => {
   setTimeout(() => { btn.textContent = 'Copy transcript with colour'; }, 1500);
 };
 $('btn-train-retry').onclick = () => {
+  if (T.phase !== 'wrong') return;
   restoreAnchor();
   clearMarks();
   T.retrying = true;
@@ -815,17 +866,20 @@ $('btn-train-accept').onclick = () => {
     srs.put(undo.key, undo.prev);
     srs.record(undo.key, lineSoFar(), T.lineColor, true);
     T.line.correct++; T.session.correct++;
+    acceptMoveStat(cursor + 1);
   }
   renderTrainStats();
   T.retrying = false;
   T.phase = 'trainer';
   setFeedback(`<b>${sqName(sq)}</b>: accepted.<span class="sub">Not saved for review.</span>`, 'good');
   T.last = `<b>${cursor + 1}.${sqName(sq)}</b>: accepted (not saved for review).`;
+  showButtons('btn-train-next');
   T.lastWarn = false;
   pushMove(sq);
   T.timer = setTimeout(trainerTurn, 650);
 };
 $('btn-train-best').onclick = () => {
+  if (T.phase !== 'wrong') return;
   restoreAnchor();
   const info = probe(cur());
   clearMarks();
@@ -836,6 +890,7 @@ $('btn-train-best').onclick = () => {
   T.phase = 'trainer';
   T.last = `<b>${cursor + 1}.${sqName(pick.sq)} ${fmtScore(pick.score)}</b>: best move played.`;
   T.lastWarn = false;
+  showButtons('btn-train-next');
   pushMove(pick.sq);
   T.timer = setTimeout(trainerTurn, 450);
 };

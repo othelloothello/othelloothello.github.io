@@ -18,6 +18,20 @@
         </div>
         <div id="board" class="board" role="grid" aria-label="Reversi board"></div>
       </div>
+
+      <!-- Training answers by move number -->
+      <div class="move-chart train-only" id="move-chart">
+        <div class="mc-head">
+          <span class="mc-title">Answers by move</span>
+          <span class="mc-legend"><i class="ok"></i>correct <i class="no"></i>wrong</span>
+          <span class="mc-tabs">
+            <button id="mc-session" class="small active">Session</button>
+            <button id="mc-all" class="small">All-time</button>
+          </span>
+        </div>
+        <div class="mc-bars" id="mc-bars"></div>
+        <div class="mc-axis" id="mc-axis"></div>
+      </div>
     </section>
 
     <aside class="panel">
